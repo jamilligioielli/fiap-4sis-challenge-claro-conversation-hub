@@ -1,0 +1,55 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: claro-hub-redis
+    ports: ["6379:6379"]
+    command: ["redis-server", "--save", "60", "1", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  mongo:
+    image: mongo:7
+    container_name: claro-hub-mongo
+    ports: ["27017:27017"]
+    volumes: ["mongo-data:/data/db"]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 8s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: ./backend
+    container_name: claro-hub-api
+    ports: ["8000:8000"]
+    env_file: [.env]
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      MONGO_URL: mongodb://mongo:27017
+      MONGO_DB: claro_hub
+      ENVIRONMENT: development
+    volumes:
+      # prompts montados de fora: editar um prompt não exige rebuild da imagem
+      - ./backend/app/prompts:/app/app/prompts:ro
+    depends_on:
+      redis: {condition: service_healthy}
+      mongo: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request;urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build: ./frontend
+    container_name: claro-hub-web
+    ports: ["3000:80"]
+    depends_on:
+      api: {condition: service_healthy}
+
+volumes:
+  mongo-data:

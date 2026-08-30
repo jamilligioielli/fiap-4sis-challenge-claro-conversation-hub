@@ -1,0 +1,9 @@
+node_modules/
+dist/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+openapi.json
+backend/app/interfaces/http/static/*.js
+backend/app/interfaces/http/static/*.css

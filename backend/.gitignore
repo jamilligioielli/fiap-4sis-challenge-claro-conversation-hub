@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+openapi.json
+app/interfaces/http/static/*.js
+app/interfaces/http/static/*.css

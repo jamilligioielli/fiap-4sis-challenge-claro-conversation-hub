@@ -1,33 +1,46 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router';
 
-import Layout from './components/Layout';
-import ChannelSimulator from './pages/ChannelSimulator';
-import Conversation from './pages/Conversation';
-import CustomerContext from './pages/CustomerContext';
-import Dashboard from './pages/Dashboard';
-import DesignStudio from './pages/DesignStudio';
-import Inbox from './pages/Inbox';
+import ViewChooser from './pages/ViewChooser';
+import CustomerPicker from './pages/simulator/CustomerPicker';
+import SimulatorChat from './pages/simulator/SimulatorChat';
+import ConsoleLayout from './pages/console/ConsoleLayout';
+import Conversation from './pages/console/Conversation';
+import CustomerContext from './pages/console/CustomerContext';
+import Dashboard from './pages/console/Dashboard';
+import DesignStudio from './pages/console/DesignStudio';
+import Inbox from './pages/console/Inbox';
+import Outreach from './pages/console/Outreach';
 
 /**
- * Rotas do console.
+ * Rotas.
  *
- * `/conversation/:id` e `/customer-context/:id` passaram a receber o id na URL:
- * com os dados vindo da API, cada conversa e cada cliente têm endereço próprio
- * — o que o protótipo, com uma tela fixa por rota, não tinha.
+ * A árvore tem dois ramos porque a solução tem dois lados: `/simulador` é o
+ * cliente sendo atendido, `/console` é a Claro atendendo. A raiz só escolhe
+ * entre os dois — antes disso não há nada a ver.
+ *
+ * Dentro do console, conversa e cliente têm endereço próprio: com os dados
+ * vindo da API, `/console/conversation/:id` é um link que se pode mandar para
+ * alguém, o que o protótipo, com uma tela fixa por rota, não tinha.
  */
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Layout />}>
+        <Route path="/" element={<ViewChooser />} />
+
+        <Route path="/simulador" element={<CustomerPicker />} />
+        <Route path="/simulador/:customerId" element={<SimulatorChat />} />
+
+        <Route path="/console" element={<ConsoleLayout />}>
           <Route index element={<Dashboard />} />
           <Route path="inbox" element={<Inbox />} />
-          <Route path="simulator" element={<ChannelSimulator />} />
+          <Route path="contato-ativo" element={<Outreach />} />
           <Route path="conversation/:id" element={<Conversation />} />
           <Route path="customer-context/:id" element={<CustomerContext />} />
           <Route path="design-studio" element={<DesignStudio />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
+
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
   );

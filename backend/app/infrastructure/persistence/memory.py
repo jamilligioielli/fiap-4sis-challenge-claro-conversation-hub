@@ -96,15 +96,24 @@ class InMemoryCustomerRepository(CustomerRepository):
 
 
 class InMemoryStudioConfigRepository(StudioConfigRepository):
+    """Guarda a configuração da persona em memória.
+
+    Entrega e guarda cópias em vez do próprio objeto. Sem isso, quem chamasse
+    `get()` receberia a instância interna do repositório e poderia alterá-la sem
+    passar por `save()` — o que dá uma gravação silenciosa, sem incremento de
+    versão e sem trilha de auditoria. Como o padrão de fábrica é um objeto de
+    módulo, a mesma referência ainda contaminaria toda instância criada depois.
+    """
+
     def __init__(self, default: StudioConfig | None = None) -> None:
-        self._config = default or StudioConfig()
+        self._config = (default or StudioConfig()).model_copy(deep=True)
 
     async def get(self) -> StudioConfig:
-        return self._config
+        return self._config.model_copy(deep=True)
 
     async def save(self, config: StudioConfig) -> StudioConfig:
         config.updated_at = datetime.now(timezone.utc)
-        self._config = config
+        self._config = config.model_copy(deep=True)
         return config
 
 

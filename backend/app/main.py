@@ -17,7 +17,7 @@ from .container import container
 from .interfaces.http import docs as local_docs
 from .interfaces.http import openapi as spec
 from .interfaces.http.routers import (channels, conversations, customers, dashboard,
-                                      operations, studio, whatsapp)
+                                      operations, outreach, studio, whatsapp)
 from .settings import get_settings
 
 logging.basicConfig(
@@ -68,6 +68,7 @@ def create_app() -> FastAPI:
     app.include_router(conversations.router)
     app.include_router(customers.router)
     app.include_router(dashboard.router)
+    app.include_router(outreach.router)
     app.include_router(studio.router)
     app.include_router(operations.router)
 

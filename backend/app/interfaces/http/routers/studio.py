@@ -1,4 +1,4 @@
-"""Console — Design Studio (RF006).
+"""Console — Design Studio.
 
 A persona é um parâmetro do sistema, não código espalhado pelas integrações.
 O que se salva aqui vale para todos os canais na próxima mensagem, sem deploy.
@@ -8,8 +8,11 @@ from __future__ import annotations
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, status
 
 from ....container import Container, get_container
-from ....domain.studio import StudioConfig
-from ..schemas import ErrorResponse
+from ....domain.studio.studio_config import StudioConfig
+from ..schemas.error_response import ErrorResponse
+from ..schemas.persona_preview_request import PersonaPreviewRequest
+from ..schemas.persona_preview_response import (ChannelPreview,
+                                                PersonaPreviewResponse)
 
 router = APIRouter(prefix="/api/v1/studio", tags=["Console · Design Studio"])
 
@@ -22,7 +25,7 @@ router = APIRouter(prefix="/api/v1/studio", tags=["Console · Design Studio"])
                  "de voz de cada canal.\n\nO canal `voice` traz um bloco `voiceConfig` "
                  "adicional (TTS, script da URA, menus, transbordo e glossário de "
                  "pronúncia). Nenhum outro canal tem esse bloco — e nada no núcleo precisou "
-                 "mudar para que ele existisse (RNF004)."),
+                 "mudar para que ele existisse."),
 )
 async def get_config(container: Container = Depends(get_container)) -> StudioConfig:
     return await container.get_studio_config.execute()
@@ -60,3 +63,30 @@ async def update_channel(
     if config is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Canal '{channel_id}' não configurado")
     return config
+
+
+@router.post(
+    "/preview",
+    response_model=PersonaPreviewResponse,
+    summary="Pré-visualizar o efeito da persona em cada canal",
+    description=(
+        "Aplica a configuração vigente sobre uma mensagem de exemplo e devolve como ela "
+        "sai em cada canal.\n\n"
+        "Existe para tornar visível o que normalmente só se percebe conversando: mudar a "
+        "formalidade ou desligar os emojis muda a fala em todos os canais ao mesmo tempo. "
+        "O campo `persona_version` sobe a cada gravação, o que permite conferir na "
+        "conversa que o ajuste realmente chegou até o cliente."
+    ),
+)
+async def preview(
+    payload: PersonaPreviewRequest,
+    container: Container = Depends(get_container),
+) -> PersonaPreviewResponse:
+    result = await container.preview_persona.execute(
+        payload.message, payload.channels, payload.customer_id)
+    return PersonaPreviewResponse(
+        persona_name=result.persona_name,
+        persona_version=result.persona_version,
+        original=result.original,
+        previews=[ChannelPreview(**preview.__dict__) for preview in result.previews],
+    )

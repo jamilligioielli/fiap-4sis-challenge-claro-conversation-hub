@@ -11,12 +11,16 @@ interface, que sabe o locale de quem está olhando.
 from __future__ import annotations
 
 from collections import Counter
-from dataclasses import dataclass, field
 from datetime import timedelta
 
-from ...domain.entities import Conversation
-from ...domain.ports import ConversationRepository
-from ...domain.value_objects import Area, Channel, ConversationStatus, utcnow
+from ...domain.entities.conversation import Conversation
+from ...domain.ports.conversation_repository import ConversationRepository
+from ...domain.value_objects.area import Area
+from ...domain.value_objects.channel import Channel
+from ...domain.value_objects.clock import utcnow
+from ...domain.value_objects.conversation_status import ConversationStatus
+from ..dto.dashboard_metrics import DashboardMetrics
+from ..dto.kpi import KPI
 
 WEEKDAYS_PT = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]
 
@@ -26,29 +30,6 @@ CHANNEL_COLORS = {
     Channel.app: "#E10019",
     Channel.voice: "#9B59B6",
 }
-
-
-@dataclass
-class KPI:
-    value: float
-    trend: float = 0.0
-    unit: str = ""
-
-
-@dataclass
-class DashboardMetrics:
-    area: str
-    conversations: KPI
-    resolution_rate: KPI
-    handover_rate: KPI
-    nps: KPI
-    week: list[dict] = field(default_factory=list)
-    channels: list[dict] = field(default_factory=list)
-    area_counts: dict[str, int] = field(default_factory=dict)
-    journey_breaks: list[dict] = field(default_factory=list)
-    automation_opportunities: list[dict] = field(default_factory=list)
-    alerts: list[dict] = field(default_factory=list)
-    intents: list[dict] = field(default_factory=list)
 
 
 class GetDashboardMetricsUseCase:
@@ -66,6 +47,7 @@ class GetDashboardMetricsUseCase:
 
         return DashboardMetrics(
             area=area or "Todos",
+            has_data=total > 0,
             conversations=KPI(value=total, trend=12.5),
             resolution_rate=KPI(value=self._pct(resolved, total), trend=4.2, unit="%"),
             handover_rate=KPI(value=self._pct(handed_over, total), trend=-3.1, unit="%"),

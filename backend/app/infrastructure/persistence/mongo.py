@@ -121,7 +121,10 @@ class MongoStudioConfigRepository(StudioConfigRepository):
 
     async def get(self) -> StudioConfig:
         doc = await self._db.studio.find_one(self.KEY, {"_id": 0, "_key": 0})
-        return StudioConfig(**doc) if doc else self._default
+        # Cópia do padrão: quem chama pode alterar o que recebe, e alterar o
+        # padrão de fábrica afetaria toda leitura seguinte antes da primeira
+        # gravação.
+        return StudioConfig(**doc) if doc else self._default.model_copy(deep=True)
 
     async def save(self, config: StudioConfig) -> StudioConfig:
         config.updated_at = datetime.now(timezone.utc)

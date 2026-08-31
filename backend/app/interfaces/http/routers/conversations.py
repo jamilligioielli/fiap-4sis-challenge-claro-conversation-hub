@@ -3,11 +3,16 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 
-from ....application.use_cases.console import ListConversationsQuery
+from ....application.dto.list_conversations_query import ListConversationsQuery
 from ....container import Container, get_container
 from ..mappers import conversation_to_list_item, intent_to_dto, message_to_dto
-from ..schemas import (AgentMessageRequest, AIPanelResponse, ConversationDetailResponse,
-                       ConversationListItem, ErrorResponse, HandoverRequest, MessageResponse)
+from ..schemas.agent_message_request import AgentMessageRequest
+from ..schemas.ai_panel_response import AIPanelResponse
+from ..schemas.conversation_detail_response import ConversationDetailResponse
+from ..schemas.conversation_list_item import ConversationListItem
+from ..schemas.error_response import ErrorResponse
+from ..schemas.handover_request import HandoverRequest
+from ..schemas.message_response import MessageResponse
 
 router = APIRouter(prefix="/api/v1/conversations", tags=["Console · Conversas"])
 
@@ -43,7 +48,7 @@ async def list_conversations(
     description=("Transcrição completa mais o painel lateral do atendente: intenção "
                  "detectada, resumo automático, próximas melhores ações e insights do "
                  "cliente.\n\nÉ o que permite ao atendente assumir a conversa sem pedir "
-                 "que o cliente repita qualquer informação (RF005)."),
+                 "que o cliente repita qualquer informação."),
 )
 async def get_conversation(
     conversation_id: str = Path(description="Id da conversa."),
@@ -59,6 +64,7 @@ async def get_conversation(
         customer_name=conversation.customer_name or "Cliente não identificado",
         status=conversation.status, area=conversation.area, priority=conversation.priority,
         channels_used=conversation.channels_used, started_at=conversation.started_at,
+        initiated_by_company=conversation.initiated_by_company,
         messages=[message_to_dto(m) for m in detail.messages],
         ai=AIPanelResponse(
             intent=intent_to_dto(conversation.intent),
@@ -72,7 +78,7 @@ async def get_conversation(
     "/{conversation_id}/handover",
     response_model=ConversationListItem,
     responses=NOT_FOUND,
-    summary="Transferir a conversa para um atendente humano (RF005)",
+    summary="Transferir a conversa para um atendente humano",
     description=("Empacota a sessão — transcrição, intenções e sistemas já consultados — e "
                  "move a conversa para a fila de atendimento humano.\n\nA transferência é "
                  "registrada na trilha de auditoria. Uma conversa transferida não volta "

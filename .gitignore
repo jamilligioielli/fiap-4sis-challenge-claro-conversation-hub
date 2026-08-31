@@ -7,3 +7,6 @@ __pycache__/
 openapi.json
 backend/app/interfaces/http/static/*.js
 backend/app/interfaces/http/static/*.css
+htmlcov/
+.coverage
+.pytest_cache/

@@ -9,8 +9,7 @@ cp ../.env.example ../.env       # opcional: só para configurar a IA
 docker compose up --build        # a partir da raiz do projeto
 ```
 
-Documentação interativa em **http://localhost:8000/docs** (Swagger UI) e
-**http://localhost:8000/redoc**. Especificação crua em `/openapi.json`.
+Documentação interativa em **http://localhost:8000/docs** (Swagger UI). Especificação crua em `/openapi.json`.
 
 Sem Docker:
 

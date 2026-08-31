@@ -1,4 +1,4 @@
-"""Casos de uso do Design Studio (RF006).
+"""Casos de uso do Design Studio.
 
 Salvar aqui muda o comportamento de todos os canais na proxima mensagem --
 nao ha deploy, nao ha reinicio. E o que torna a persona um parametro do sistema
@@ -24,6 +24,10 @@ class UpdateStudioConfigUseCase:
         self._audit = audit
 
     async def execute(self, config: StudioConfig) -> StudioConfig:
+        # A versão sobe a cada gravação. É o que permite provar, na conversa,
+        # que o ajuste feito no Studio chegou até a resposta do cliente.
+        current = await self._repository.get()
+        config.version = current.version + 1
         saved = await self._repository.save(config)
         await self._audit.record("studio.config.updated", None, {
             "persona": saved.persona.name,
@@ -48,6 +52,7 @@ class UpdateChannelConfigUseCase:
 
         updated = target.model_copy(update=patch)
         config.channels = [updated if c.id == channel_id else c for c in config.channels]
+        config.version += 1
 
         saved = await self._repository.save(config)
         await self._audit.record("studio.channel.updated", None,

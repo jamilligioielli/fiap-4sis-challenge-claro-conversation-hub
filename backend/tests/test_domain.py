@@ -86,9 +86,20 @@ def test_handover_por_insatisfacao_detectada():
     assert "nsatisfação" in decision.reason
 
 
-def test_handover_por_baixa_confianca():
+def test_baixa_confianca_isolada_nao_escala():
+    """Não entender uma mensagem rende uma pergunta, não uma transferência.
+
+    Escalar no primeiro tropeço faria do hub um encaminhador de fila — e o
+    cliente ainda teria de repetir tudo para o atendente."""
     decision = HandoverPolicy().evaluate(VAGA, "hmm", conversation())
+    assert not decision.should_handover
+
+
+def test_handover_por_baixa_confianca_repetida():
+    decision = HandoverPolicy().evaluate(VAGA, "hmm", conversation(),
+                                         consecutive_failures=2)
     assert decision.should_handover
+    assert "confiança" in decision.reason
 
 
 def test_sem_handover_no_caminho_feliz():

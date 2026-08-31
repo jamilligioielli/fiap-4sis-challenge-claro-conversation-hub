@@ -32,7 +32,6 @@ services:
       MONGO_DB: claro_hub
       ENVIRONMENT: development
     volumes:
-      # prompts montados de fora: editar um prompt não exige rebuild da imagem
       - ./backend/app/prompts:/app/app/prompts:ro
     depends_on:
       redis: {condition: service_healthy}

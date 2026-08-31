@@ -1,4 +1,4 @@
-"""Servico de dominio: roteamento por intencao (RF004).
+"""Servico de dominio: roteamento por intencao.
 
 Decide, a partir da intencao, qual fluxo de negocio roda e quais sistemas
 internos precisam ser consultados. Nao executa nada -- so decide. A execucao

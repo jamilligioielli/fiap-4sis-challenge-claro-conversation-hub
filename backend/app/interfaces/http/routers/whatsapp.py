@@ -15,7 +15,9 @@ from fastapi.responses import PlainTextResponse
 from ....application.use_cases.ingest_message import IngestCommand
 from ....container import Container, get_container
 from ....domain.value_objects import Channel
-from ..schemas import ErrorResponse, WhatsAppSendRequest, WhatsAppStatusResponse
+from ..schemas.error_response import ErrorResponse
+from ..schemas.whatsapp_send_request import WhatsAppSendRequest
+from ..schemas.whatsapp_status_response import WhatsAppStatusResponse
 
 log = logging.getLogger("hub.whatsapp.webhook")
 
@@ -49,7 +51,7 @@ async def verify_webhook(
 @router.post(
     "/webhook",
     status_code=status.HTTP_200_OK,
-    summary="Receber mensagens do WhatsApp (RF001)",
+    summary="Receber mensagens do WhatsApp",
     description=("Endpoint que a Meta chama a cada mensagem recebida no número do MVP.\n\n"
                  "O adaptador valida a assinatura `X-Hub-Signature-256`, extrai as "
                  "mensagens de texto e entrega cada uma ao mesmo caso de uso de ingestão "

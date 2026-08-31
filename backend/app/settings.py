@@ -1,7 +1,31 @@
 """Configuracao da aplicacao. Unico ponto do sistema que le variavel de ambiente."""
+import json
+import logging
 import os
 from dataclasses import dataclass, field
 from functools import lru_cache
+
+
+def _json_env(name: str) -> dict:
+    """Lê uma variável de ambiente em JSON, tolerando ausência e lixo.
+
+    Uma configuração malformada não pode derrubar a API na subida: o hub avisa
+    no log e segue sem os parâmetros extras, que é degradação e não falha.
+    """
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return {}
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        logging.getLogger("hub.settings").warning(
+            "%s ignorada — JSON inválido (%s)", name, exc)
+        return {}
+    if not isinstance(value, dict):
+        logging.getLogger("hub.settings").warning(
+            "%s ignorada — esperava um objeto JSON, veio %s", name, type(value).__name__)
+        return {}
+    return value
 
 
 @dataclass(frozen=True)
@@ -13,6 +37,13 @@ class LLMSettings:
     model: str = os.getenv("LLM_MODEL", "gpt-5")
     timeout: float = float(os.getenv("LLM_TIMEOUT", "12"))
     max_tokens: int = int(os.getenv("LLM_MAX_TOKENS", "400"))
+
+    # Parâmetros extras do provedor, em JSON. Existem porque cada provedor
+    # acrescenta campos próprios ao protocolo: a Groq aceita `include_reasoning`
+    # e `reasoning_effort` nos modelos GPT-OSS, que a OpenAI não conhece.
+    # Mantê-los em configuração — e não em `if provedor == "groq"` dentro do
+    # cliente — é o que preserva a promessa de trocar de IA sem tocar no código.
+    extra_params: dict = field(default_factory=lambda: _json_env("LLM_EXTRA_PARAMS"))
 
     @property
     def enabled(self) -> bool:

@@ -6,7 +6,7 @@ from dataclasses import asdict
 from fastapi import APIRouter, Depends, Query
 
 from ....container import Container, get_container
-from ..schemas import DashboardResponse
+from ..schemas.dashboard_response import DashboardResponse
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["Console · Dashboard"])
 

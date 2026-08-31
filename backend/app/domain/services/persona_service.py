@@ -1,4 +1,4 @@
-"""Servico de dominio: aplicacao da persona (RF006).
+"""Servico de dominio: aplicacao da persona.
 
 O tom de voz da Claro e um servico do hub, nao um prompt copiado dentro de cada
 integracao. Mudar a configuracao no Design Studio muda, ja na proxima resposta,
@@ -47,17 +47,28 @@ class PersonaService:
         return self._truncate(text, ch.maxLength)
 
     @staticmethod
-    def _interpolate(template: str, first_name: str) -> str:
-        """Interpola o nome e limpa a pontuação órfã.
+    def interpolate_greeting(template: str, first_name: str) -> str:
+        """Interpola o nome e garante que a saudação termine pontuada.
 
         Cliente anônimo é o caso comum no primeiro contato de um canal aberto:
-        "Olá, {nome}!" sem nome não pode virar "Olá, !".
+        "Olá, {nome}!" sem nome não pode virar "Olá, !" nem "Olá" colado na
+        frase seguinte.
         """
         text = template.replace("{nome}", first_name)
         if not first_name:
             text = re.sub(r"[,\s]+([!?.])", r"\1", text)
             text = re.sub(r"[,\s]+$", "", text)
-        return re.sub(r"\s{2,}", " ", text).strip()
+        text = re.sub(r"\s{2,}", " ", text).strip()
+
+        # "Oi, João! 👋" já está pontuado — o emoji no fim não pede outro ponto.
+        without_emoji = EMOJI.sub("", text).strip()
+        if without_emoji and without_emoji[-1] not in "!?.…":
+            text = f"{without_emoji}!{text[len(without_emoji):]}".strip()
+        return text
+
+    @classmethod
+    def _interpolate(cls, template: str, first_name: str) -> str:
+        return cls.interpolate_greeting(template, first_name)
 
     @staticmethod
     def _adjust_formality(text: str, level: int) -> str:

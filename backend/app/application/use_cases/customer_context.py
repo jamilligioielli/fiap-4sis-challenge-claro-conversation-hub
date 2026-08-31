@@ -1,7 +1,7 @@
 """Caso de uso: visao 360 do cliente (tela Contexto do Cliente).
 
 Todo acesso passa pela trilha de auditoria: consultar dado de cliente e um
-evento auditavel, nao uma leitura silenciosa (RNF003 / LGPD).
+evento auditavel, nao uma leitura silenciosa ( / LGPD).
 """
 from __future__ import annotations
 

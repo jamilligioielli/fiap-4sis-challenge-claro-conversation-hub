@@ -6,13 +6,18 @@ porque têm outro ator (o atendente, não o cliente) e outro ciclo de vida.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from ...domain.entities import Conversation, Message
-from ...domain.ports import (AuditLog, ConversationRepository, CustomerRepository,
-                             StudioConfigRepository)
-from ...domain.value_objects import Author, Channel, utcnow
+from ...domain.entities.conversation import Conversation
+from ...domain.entities.message import Message
+from ...domain.ports.audit_log import AuditLog
+from ...domain.ports.conversation_repository import ConversationRepository
+from ...domain.ports.customer_repository import CustomerRepository
+from ...domain.value_objects.author import Author
+from ...domain.value_objects.channel import Channel
+from ...domain.value_objects.clock import utcnow
+from ..dto.conversation_detail import ConversationDetail
+from ..dto.list_conversations_query import ListConversationsQuery
 
 
 def relative_label(moment: datetime) -> str:
@@ -31,14 +36,6 @@ def relative_label(moment: datetime) -> str:
 
 
 # ------------------------------------------------------------------ listagem
-@dataclass(frozen=True)
-class ListConversationsQuery:
-    area: str | None = None
-    channel: str | None = None
-    status: str | None = None
-    search: str | None = None
-
-
 class ListConversationsUseCase:
     def __init__(self, conversations: ConversationRepository) -> None:
         self._conversations = conversations
@@ -54,15 +51,6 @@ class ListConversationsUseCase:
 
 
 # ------------------------------------------------------------------- detalhe
-@dataclass
-class ConversationDetail:
-    conversation: Conversation
-    messages: list[Message]
-    summary: dict[str, str]
-    suggestions: list[str]
-    insights: list[dict]
-
-
 class GetConversationUseCase:
     def __init__(self, conversations: ConversationRepository,
                  customers: CustomerRepository, audit: AuditLog) -> None:
@@ -102,7 +90,7 @@ class GetConversationUseCase:
             "plano_atual": (f"{customer.plan.name} (R$ {customer.plan.price:.2f})".replace(".", ",")
                             if customer and customer.plan else "—"),
             "status": ("Transferida para atendente" if conversation.handover.requested
-                       else "Aguardando confirmação de dados"),
+                       else "Em atendimento automatizado"),
             "canal": channels or "—",
             "mensagens": str(len(messages)),
         }
@@ -148,7 +136,7 @@ class GetConversationUseCase:
 
 # ------------------------------------------------------------------ handover
 class RequestHandoverUseCase:
-    """RF005 acionado pelo console (o atendente puxa a conversa para si)."""
+    """Acionado pelo console quando o atendente puxa a conversa para si."""
 
     def __init__(self, conversations: ConversationRepository, audit: AuditLog) -> None:
         self._conversations = conversations

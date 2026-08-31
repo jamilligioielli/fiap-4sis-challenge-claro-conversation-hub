@@ -1,4 +1,6 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from 'vite'
+import type { UserConfig } from 'vitest/config'
 import path from 'path'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
@@ -7,7 +9,7 @@ import react from '@vitejs/plugin-react'
 function figmaAssetResolver() {
   return {
     name: 'figma-asset-resolver',
-    resolveId(id) {
+    resolveId(id: string) {
       if (id.startsWith('figma:asset/')) {
         const filename = id.replace('figma:asset/', '')
         return path.resolve(__dirname, 'src/assets', filename)
@@ -52,4 +54,25 @@ export default defineConfig({
 
   // File types to support raw imports. Never add .css, .tsx, or .ts files to this.
   assetsInclude: ['**/*.svg', '**/*.csv'],
-})
+
+  // Os testes cobrem o que quebraria a demonstração: o cliente HTTP (contrato com
+  // a API) e as telas onde uma regra de negócio vira decisão de interface.
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    setupFiles: ['./vitest.setup.ts'],
+    css: false,
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'html', 'json-summary'],
+      include: ['src/app/api/**/*.ts', 'src/app/pages/**/*.tsx', 'src/app/components/AsyncBoundary.tsx'],
+      // `types.ts` só declara tipos: não sobra runtime para cobrir, e mantê-lo
+      // no denominador só distorceria o número.
+      exclude: ['src/app/components/ui/**', 'src/app/components/figma/**',
+                'src/app/api/types.ts'],
+      // Um limiar que ninguém verifica não é um limiar: `npm run coverage`
+      // reprova sozinho se a cobertura cair.
+      thresholds: { lines: 70, functions: 60, statements: 70 },
+    },
+  },
+} as UserConfig)

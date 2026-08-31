@@ -7,7 +7,8 @@
  */
 import type {
   Channel, ConversationDetail, ConversationListItem, CustomerContext,
-  Dashboard, Health, HubReply, Message, StudioConfig, WhatsAppStatus,
+  CustomerSummary, Dashboard, EligibleCustomer, Greeting, Health, HubReply,
+  Message, OutreachResult, PersonaPreview, StudioConfig, WhatsAppStatus,
 } from './types';
 
 /** Em desenvolvimento o Vite faz proxy de /api e /health para o back-end. */
@@ -66,17 +67,17 @@ export const api = {
     return request('/api/v1/channels');
   },
 
-  // -- Canal WhatsApp (Cloud API) -----------------------------------------
-  getWhatsAppStatus(): Promise<WhatsAppStatus> {
-    return request('/api/v1/channels/whatsapp/status');
+  /** Abre a conversa e recebe a saudação do assistente, antes da primeira mensagem. */
+  startConversation(customerId: string, channel: Channel): Promise<Greeting> {
+    return request('/api/v1/channels/conversations', {
+      method: 'POST',
+      body: JSON.stringify({ customer_id: customerId, channel }),
+    });
   },
 
-  /** Envio direto pelo número do MVP, sem passar pelo núcleo. Valida credenciais. */
-  sendWhatsAppTest(text: string, to?: string): Promise<Record<string, unknown>> {
-    return request('/api/v1/channels/whatsapp/send', {
-      method: 'POST',
-      body: JSON.stringify({ text, to }),
-    });
+  // -- Canal WhatsApp (usado apenas pela documentação e pela operação) -----
+  getWhatsAppStatus(): Promise<WhatsAppStatus> {
+    return request('/api/v1/channels/whatsapp/status');
   },
 
   // -- Console ------------------------------------------------------------
@@ -104,8 +105,16 @@ export const api = {
     });
   },
 
+  listCustomers(): Promise<CustomerSummary[]> {
+    return request('/api/v1/customers');
+  },
+
   getCustomerContext(customerId: string): Promise<CustomerContext> {
     return request(`/api/v1/customers/${customerId}/context`);
+  },
+
+  listCustomerConversations(customerId: string): Promise<ConversationListItem[]> {
+    return request(`/api/v1/customers/${customerId}/conversations`);
   },
 
   getDashboard(area?: string): Promise<Dashboard> {
@@ -128,6 +137,28 @@ export const api = {
     return request(`/api/v1/studio/channels/${channelId}`, {
       method: 'PATCH',
       body: JSON.stringify(patch),
+    });
+  },
+
+  /** Mostra como a mesma frase sai em cada canal com a configuração vigente. */
+  previewPersona(message: string, channels?: string[],
+                 customerId?: string): Promise<PersonaPreview> {
+    return request('/api/v1/studio/preview', {
+      method: 'POST',
+      body: JSON.stringify({ message, channels, customer_id: customerId }),
+    });
+  },
+
+  // -- Contato ativo ------------------------------------------------------
+  listEligibleCustomers(onlyContactable = false): Promise<EligibleCustomer[]> {
+    return request(`/api/v1/outreach/eligible${onlyContactable ? '?only_contactable=true' : ''}`);
+  },
+
+  sendOutreach(customerId: string, offerId: string,
+               agent = 'Console'): Promise<OutreachResult> {
+    return request('/api/v1/outreach/send', {
+      method: 'POST',
+      body: JSON.stringify({ customer_id: customerId, offer_id: offerId, agent }),
     });
   },
 

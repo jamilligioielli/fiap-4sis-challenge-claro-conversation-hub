@@ -5,7 +5,8 @@ from fastapi import APIRouter, Depends, Query
 
 from ....container import Container, get_container
 from ....infrastructure.llm.prompt_loader import PromptLoader
-from ..schemas import ComponentHealth, HealthResponse
+from ..schemas.component_health import ComponentHealth
+from ..schemas.health_response import HealthResponse
 
 router = APIRouter(tags=["Operação"])
 
@@ -14,11 +15,14 @@ router = APIRouter(tags=["Operação"])
     "/health",
     response_model=HealthResponse,
     summary="Saúde e modo de operação",
-    description=("Diz em que modo cada componente está rodando.\n\n"
-                 "`memory (fallback)` significa que a infraestrutura correspondente não "
-                 "respondeu e o hub seguiu em memória — o serviço continua funcional, mas "
-                 "sem durabilidade. O mesmo vale para o motor de intenção: sem chave de "
-                 "LLM, o classificador por regras assume."),
+    description=(
+        "Diz em que modo cada componente está rodando.\n\n"
+        "`memory (fallback)` significa que a infraestrutura correspondente não respondeu "
+        "e o hub seguiu em memória: funcional, porém sem durabilidade.\n\n"
+        "`generative_ai` informa se as respostas ao cliente estão sendo **redigidas por "
+        "um modelo de linguagem** ou montadas a partir de modelos de texto. A interface "
+        "mostra esse estado — ninguém precisa acreditar na palavra do sistema."
+    ),
 )
 async def health(container: Container = Depends(get_container)) -> HealthResponse:
     session_state = await container.sessions.health()
@@ -33,6 +37,8 @@ async def health(container: Container = Depends(get_container)) -> HealthRespons
             session_store=session_state,
             history_store=history_state,
             intent_engine=container.classifier.engine_name,
+            response_generator=container.generator.generator_name,
+            generative_ai=container.generative_ai,
             backend_systems=container.backends.available,
         ),
     )
@@ -40,10 +46,10 @@ async def health(container: Container = Depends(get_container)) -> HealthRespons
 
 @router.get(
     "/api/v1/audit",
-    summary="Trilha de auditoria de acesso (LGPD)",
+    summary="Trilha de auditoria de acesso",
     description=("Registro de todo acesso e tratamento de dado de cliente: ingestão de "
-                 "mensagem, consulta de contexto, transferência e alteração de "
-                 "configuração.\n\nAtende ao RNF003 — consultar dado de cliente é um evento "
+                 "mensagem, consulta de contexto, transferência, contato ativo e "
+                 "alteração de configuração.\n\nConsultar dado de cliente é um evento "
                  "auditável, não uma leitura silenciosa."),
 )
 async def audit_trail(
@@ -57,8 +63,8 @@ async def audit_trail(
 @router.get(
     "/api/v1/prompts",
     summary="Listar os prompts carregados",
-    description=("Prompts disponíveis em `app/prompts/`. Nenhum texto enviado ao modelo de "
-                 "linguagem está escrito em código Python — todos vivem em arquivos "
+    description=("Prompts disponíveis em `app/prompts/`. Nenhum texto enviado ao modelo "
+                 "de linguagem está escrito em código: todos vivem em arquivos "
                  "versionados, editáveis por quem cuida da linguagem da marca."),
 )
 async def prompts() -> dict:

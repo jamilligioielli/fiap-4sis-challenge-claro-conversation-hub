@@ -12,8 +12,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { api, ApiError } from './client';
 import type {
-  ConversationDetail, ConversationListItem, CustomerContext, Dashboard,
-  Health, StudioConfig, WhatsAppStatus,
+  ConversationDetail, ConversationListItem, CustomerContext, CustomerSummary,
+  Dashboard, EligibleCustomer, Health, StudioConfig, WhatsAppStatus,
 } from './types';
 
 export interface AsyncState<T> {
@@ -121,4 +121,23 @@ export function useHealth(pollMs = 30000): AsyncState<Health> {
 
 export function useWhatsAppStatus(): AsyncState<WhatsAppStatus> {
   return useAsync(() => api.getWhatsAppStatus(), []);
+}
+
+export function useCustomers(): AsyncState<CustomerSummary[]> {
+  return useAsync(() => api.listCustomers(), []);
+}
+
+export function useCustomerConversations(customerId: string | undefined)
+  : AsyncState<ConversationListItem[]> {
+  return useAsync(
+    () => (customerId
+      ? api.listCustomerConversations(customerId)
+      : Promise.reject(new ApiError(404, 'Sem cliente'))),
+    [customerId],
+  );
+}
+
+export function useEligibleCustomers(onlyContactable = false)
+  : AsyncState<EligibleCustomer[]> {
+  return useAsync(() => api.listEligibleCustomers(onlyContactable), [onlyContactable]);
 }

@@ -13,6 +13,8 @@ export type Author = 'customer' | 'bot' | 'agent' | 'system';
 export type Area =
   | 'Suporte' | 'Vendas' | 'Financeiro' | 'Marketing' | 'Retenção' | 'Técnico';
 
+export type ResponseSource = 'generative' | 'template';
+
 export interface Intent {
   slug: string;
   name: string;
@@ -37,10 +39,105 @@ export interface HubReply {
   persona_applied: string;
   context_recovered: boolean;
   context_note: string | null;
+  persona_version: number;
+  response_source: ResponseSource;
+  response_model: string | null;
+  awaiting_context_confirmation: boolean;
   handover_triggered: boolean;
   handover_reason: string | null;
   services_consulted: string[];
   turns: number;
+}
+
+/** Saudação de abertura, antes da primeira mensagem do cliente. */
+export interface Greeting {
+  conversation_id: string;
+  session_id: string;
+  customer_id: string;
+  greeting: string;
+  persona_applied: string;
+  persona_version: number;
+  response_source: ResponseSource;
+  response_model: string | null;
+  resumed: boolean;
+}
+
+/** Cliente na lista de personas do simulador. */
+export interface CustomerSummary {
+  id: string;
+  name: string;
+  segment: string;
+  persona_summary: string;
+  preferred_channel: Channel;
+  plan_name: string | null;
+  plan_usage_percent: number | null;
+  churn_label: string;
+  marketing_opt_in: boolean;
+  conversation_count: number;
+  open_conversation_id: string | null;
+}
+
+export interface EligibilityReason {
+  code: string;
+  description: string;
+  weight: number;
+}
+
+export interface OutreachBlock {
+  code: string;
+  description: string;
+}
+
+export interface Offer {
+  id: string;
+  title: string;
+  pitch: string;
+  category: string;
+  plan_name: string | null;
+  price: number | null;
+  saving_hint: string;
+}
+
+export interface EligibleCustomer {
+  customer_id: string;
+  customer_name: string;
+  segment: string;
+  score: number;
+  reasons: EligibilityReason[];
+  blocks: OutreachBlock[];
+  suggested_offer: Offer | null;
+  window_open: boolean;
+  window_hours_remaining: number;
+  marketing_opt_in: boolean;
+  can_contact: boolean;
+  requires_template: boolean;
+}
+
+export interface OutreachResult {
+  conversation_id: string;
+  customer_id: string;
+  message: string;
+  channel: string;
+  template_category: string;
+  used_template: boolean;
+  response_source: ResponseSource;
+}
+
+export interface ChannelPreview {
+  channel_id: string;
+  channel_name: string;
+  formality_label: string;
+  use_emoji: boolean;
+  max_length: number;
+  rendered: string;
+  length: number;
+}
+
+export interface PersonaPreview {
+  persona_name: string;
+  persona_version: number;
+  original: string;
+  previews: ChannelPreview[];
 }
 
 export interface ConversationListItem {
@@ -59,6 +156,9 @@ export interface ConversationListItem {
   intent: string | null;
   confidence: number | null;
   handover_requested: boolean;
+  initiated_by_company: boolean;
+  message_count: number;
+  started_at: string;
 }
 
 export interface Message {
@@ -68,6 +168,7 @@ export interface Message {
   channel: Channel | null;
   timestamp: string;
   intent: Intent | null;
+  source: ResponseSource | null;
 }
 
 export interface AIPanel {
@@ -118,6 +219,8 @@ export interface CustomerContext {
   email: string;
   phone: string;
   preferred_channel: Channel;
+  persona_summary: string;
+  marketing_opt_in: boolean;
   plan: Plan | null;
   products: { name: string; status: string; description: string }[];
   timeline: { date: string; event: string; type: string }[];
@@ -137,6 +240,7 @@ export interface KPI {
 
 export interface Dashboard {
   area: string;
+  has_data: boolean;
   conversations: KPI;
   resolution_rate: KPI;
   handover_rate: KPI;
@@ -193,6 +297,7 @@ export interface StudioConfig {
   intents: { slug: string; name: string; confidence: string; examples: string }[];
   guardrails: { rule: string; category: string }[];
   channels: ChannelConfig[];
+  version: number;
   updated_at: string;
 }
 
@@ -204,6 +309,8 @@ export interface Health {
     session_store: string;
     history_store: string;
     intent_engine: string;
+    response_generator: string;
+    generative_ai: boolean;
     backend_systems: string[];
   };
 }

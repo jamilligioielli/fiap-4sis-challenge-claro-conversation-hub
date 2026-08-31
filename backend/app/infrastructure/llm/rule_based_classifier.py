@@ -1,4 +1,4 @@
-"""Adaptador do RF002: classificador deterministico por palavra-chave.
+"""Adaptador do : classificador deterministico por palavra-chave.
 
 Nao e um "plano B de emergencia" -- e a garantia de que a demonstracao funciona
 sem rede, sem chave e sem cota. O hub sempre tem este classificador disponivel.
@@ -14,9 +14,16 @@ from ...domain.value_objects import Area, Intent, IntentEngine, UNIDENTIFIED
 TAXONOMY: dict[str, dict] = {
     "alteracao_plano": {
         "label": "Alteração de Plano", "area": Area.vendas,
+        # O cliente raramente diz "alterar plano": ele diz o que quer — mais
+        # internet, mais franquia, um plano maior. Reconhecer a necessidade, e
+        # não só o jargão, é o que separa um menu de um atendimento.
         "keywords": ["alterar meu plano", "mudar de plano", "trocar de plano", "alterar plano",
                      "mudar plano", "upgrade", "aumentar o plano", "migrar plano",
-                     "quero o claro flex", "contratar plano", "mudar meu plano"],
+                     "quero o claro flex", "contratar plano", "mudar meu plano",
+                     "aumentar minha franquia", "aumentar a franquia", "mais franquia",
+                     "mais internet", "mais dados", "mais gb", "plano maior",
+                     "franquia maior", "outro plano", "plano com mais",
+                     "aumentar meu plano", "subir de plano", "quanto ficaria um plano"],
     },
     "segunda_via_fatura": {
         "label": "Segunda Via de Fatura", "area": Area.financeiro,
@@ -25,9 +32,13 @@ TAXONOMY: dict[str, dict] = {
     },
     "suporte_tecnico": {
         "label": "Suporte Técnico", "area": Area.suporte,
+        # "lenta" e "lento" sozinhos porque o cliente escreve "minha internet
+        # está lenta", e uma palavra no meio não deveria fazer o hub perder o
+        # assunto. Neste domínio, "lento" só aparece falando de conexão.
         "keywords": ["internet lenta", "sem sinal", "nao conecta", "sem internet", "caiu",
                      "roteador", "wi-fi", "wifi", "lentidao", "instabilidade", "travando",
-                     "nao funciona", "sem conexao", "muito lenta"],
+                     "nao funciona", "sem conexao", "muito lenta", "lenta", "lento",
+                     "sem rede", "nao pega", "oscilando"],
     },
     "portabilidade": {
         "label": "Portabilidade", "area": Area.vendas,

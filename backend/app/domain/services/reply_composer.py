@@ -9,6 +9,7 @@ tom sem mexer na regra.
 """
 from __future__ import annotations
 
+import re
 import unicodedata
 
 from ..value_objects import Intent
@@ -25,10 +26,14 @@ def _is_affirmation(text: str) -> bool:
 
     Sem isto o bot reapresenta a mesma oferta a cada turno — que é a versão
     conversacional de não ouvir o cliente.
+
+    A comparação é por palavra inteira: "assim" contém "sim", e tratar
+    "meu plano assim não serve" como confirmação registraria uma alteração que
+    o cliente não pediu.
     """
     nfkd = unicodedata.normalize("NFKD", text.lower().strip(" .!?"))
     normalized = "".join(c for c in nfkd if not unicodedata.combining(c))
-    return any(a in normalized for a in AFFIRMATIONS)
+    return any(re.search(rf"\b{re.escape(a)}\b", normalized) for a in AFFIRMATIONS)
 
 
 def brl(value: float) -> str:

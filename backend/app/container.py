@@ -1,9 +1,8 @@
 """Composition root.
 
 Único lugar do sistema onde implementações concretas são escolhidas e ligadas às
-portas. Todo o resto do código depende de abstrações; a decisão de "Redis ou
-memória", "Groq ou regras", "Mongo ou memória" é tomada aqui e em nenhum outro
-lugar (Dependency Inversion, na prática).
+portas. Todo o resto do código depende de abstrações; a decisão de "cache ou
+memória", "modelo de linguagem ou regras" é tomada aqui e em nenhum outro lugar.
 
 Trocar de infraestrutura é editar este arquivo — nenhum caso de uso muda.
 """
@@ -16,20 +15,33 @@ from .application.use_cases.console import (GetConversationUseCase, ListConversa
 from .application.use_cases.customer_context import GetCustomerContextUseCase
 from .application.use_cases.dashboard import GetDashboardMetricsUseCase
 from .application.use_cases.ingest_message import IngestMessageUseCase
+from .application.use_cases.list_customers import ListCustomersUseCase
+from .application.use_cases.outreach import (ListEligibleCustomersUseCase, SendOutreachUseCase)
+from .application.use_cases.preview_persona import PreviewPersonaUseCase
+from .application.use_cases.start_conversation import StartConversationUseCase
 from .application.use_cases.studio_config import (GetStudioConfigUseCase,
                                                   UpdateChannelConfigUseCase,
                                                   UpdateStudioConfigUseCase)
-from .domain.ports import (AuditLog, BackendSystems, ConversationRepository,
-                           CustomerRepository, IntentClassifier, SessionRepository,
-                           StudioConfigRepository)
+from .domain.ports.audit_log import AuditLog
+from .domain.ports.backend_systems import BackendSystems
+from .domain.ports.conversation_repository import ConversationRepository
+from .domain.ports.customer_repository import CustomerRepository
+from .domain.ports.intent_classifier import IntentClassifier
+from .domain.ports.response_generator import ResponseGenerator
+from .domain.ports.session_repository import SessionRepository
+from .domain.ports.studio_config_repository import StudioConfigRepository
 from .domain.services.handover_policy import HandoverPolicy
 from .infrastructure import seed
 from .infrastructure.integrations.mock_backend_systems import MockBackendSystems
-from .infrastructure.messaging.whatsapp_cloud import WhatsAppCloudGateway
-from .infrastructure.llm.openai_compatible_classifier import (OpenAICompatibleClassifier,
-                                                              ResilientIntentClassifier)
+from .infrastructure.llm.llm_client import LLMClient
+from .infrastructure.llm.llm_intent_classifier import LLMIntentClassifier
+from .infrastructure.llm.llm_response_generator import LLMResponseGenerator
 from .infrastructure.llm.prompt_loader import PromptLoader
+from .infrastructure.llm.resilient_intent_classifier import ResilientIntentClassifier
+from .infrastructure.llm.resilient_response_generator import ResilientResponseGenerator
 from .infrastructure.llm.rule_based_classifier import RuleBasedIntentClassifier
+from .infrastructure.llm.template_response_generator import TemplateResponseGenerator
+from .infrastructure.messaging.whatsapp_cloud import WhatsAppCloudGateway
 from .infrastructure.persistence import mongo as mongo_adapters
 from .infrastructure.persistence.memory import (InMemoryAuditLog,
                                                 InMemoryConversationRepository,
@@ -43,31 +55,29 @@ log = logging.getLogger("hub.container")
 
 
 class Container:
-    """Guarda as dependências resolvidas e expõe os casos de uso já montados."""
-
     sessions: SessionRepository
     conversations: ConversationRepository
     customers: CustomerRepository
     studio: StudioConfigRepository
     audit: AuditLog
     classifier: IntentClassifier
+    generator: ResponseGenerator
     backends: BackendSystems
     whatsapp: WhatsAppCloudGateway
 
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
         self._redis_adapter: RedisSessionRepository | None = None
+        self.generative_ai = False
 
     # ------------------------------------------------------------ ciclo de vida
     async def startup(self) -> None:
         s = self.settings
 
-        # -- sessão (curto prazo) -----------------------------------------
         redis_repo = await RedisSessionRepository.connect(s.redis_url, s.session_ttl_seconds)
         self._redis_adapter = redis_repo
         self.sessions = redis_repo or InMemorySessionRepository()
 
-        # -- histórico (longo prazo) --------------------------------------
         db = await mongo_adapters.connect(s.mongo_url, s.mongo_db)
         if db is not None:
             self.conversations = mongo_adapters.MongoConversationRepository(db)
@@ -80,48 +90,64 @@ class Container:
             self.studio = InMemoryStudioConfigRepository(seed.DEFAULT_STUDIO)
             self.audit = InMemoryAuditLog()
 
-        # -- motor de intenção --------------------------------------------
+        await seed.populate(self.customers, self.conversations, self.studio)
+        self._wire_language_model(s)
+        self.backends = MockBackendSystems()
+        self.whatsapp = WhatsAppCloudGateway(s.whatsapp)
+        self._log_whatsapp(s)
+
+    def _wire_language_model(self, s: Settings) -> None:
         loader = PromptLoader()
         rules = RuleBasedIntentClassifier()
-        if s.llm.enabled:
-            config = await self.studio.get()
-            primary = OpenAICompatibleClassifier(s.llm, loader, studio=config)
-            self.classifier = ResilientIntentClassifier(primary, rules)
-            log.info("Motor de intenção: %s (fallback: regras)", s.llm.model)
-        else:
+        templates = TemplateResponseGenerator()
+
+        if not s.llm.enabled:
             self.classifier = rules
-            log.info("Motor de intenção: regras (nenhuma LLM_API_KEY configurada)")
+            self.generator = templates
+            self.generative_ai = False
+            log.info("Sem chave de modelo de linguagem: classificação por regras e "
+                     "respostas por modelo de texto.")
+            return
 
-        # -- sistemas internos --------------------------------------------
-        self.backends = MockBackendSystems()
+        client = LLMClient(s.llm)
+        self.classifier = ResilientIntentClassifier(
+            LLMIntentClassifier(client, loader, studio=seed.DEFAULT_STUDIO), rules)
+        self.generator = ResilientResponseGenerator(
+            LLMResponseGenerator(client, loader), templates)
+        self.generative_ai = True
+        log.info("IA generativa ativa: %s redigindo as respostas.", s.llm.model)
 
-        # -- canal WhatsApp (Cloud API) ------------------------------------
-        self.whatsapp = WhatsAppCloudGateway(s.whatsapp)
+    @staticmethod
+    def _log_whatsapp(s: Settings) -> None:
         if s.whatsapp.can_send:
             log.info("Canal WhatsApp habilitado (Cloud API %s)", s.whatsapp.api_version)
         elif s.whatsapp.configured:
-            log.info("Canal WhatsApp configurado, porém desligado "
-                     "(defina WHATSAPP_ENABLED=true para ativar)")
+            log.info("Canal WhatsApp configurado, porém desligado.")
         else:
-            faltando = ", ".join(s.whatsapp.missing()) or "credenciais"
-            log.info("Canal WhatsApp inativo — faltam: %s. O simulador continua disponível.",
-                     faltando)
-
-        await seed.populate(self.customers, self.conversations, self.studio)
+            log.info("Canal WhatsApp inativo — o simulador continua disponível.")
 
     async def shutdown(self) -> None:
         if self._redis_adapter is not None:
             await self._redis_adapter.close()
 
-    # ---------------------------------------------------------------- casos de uso
+    # ---------------------------------------------------------- casos de uso
     @property
     def ingest_message(self) -> IngestMessageUseCase:
         return IngestMessageUseCase(
             sessions=self.sessions, conversations=self.conversations,
             customers=self.customers, studio=self.studio, classifier=self.classifier,
-            backends=self.backends, audit=self.audit,
+            generator=self.generator, backends=self.backends, audit=self.audit,
             handover_policy=HandoverPolicy(self.settings.handover_confidence_threshold),
         )
+
+    @property
+    def start_conversation(self) -> StartConversationUseCase:
+        return StartConversationUseCase(
+            self.sessions, self.conversations, self.customers, self.studio, self.generator)
+
+    @property
+    def list_customers(self) -> ListCustomersUseCase:
+        return ListCustomersUseCase(self.customers, self.conversations)
 
     @property
     def list_conversations(self) -> ListConversationsUseCase:
@@ -160,10 +186,28 @@ class Container:
     def update_channel_config(self) -> UpdateChannelConfigUseCase:
         return UpdateChannelConfigUseCase(self.studio, self.audit)
 
+    async def list_conversations_for_customer(self, customer_id: str):
+        """Histórico de um cliente, do mais recente para o mais antigo."""
+        return await self.conversations.list(customer_id=customer_id)
+
+    @property
+    def preview_persona(self) -> PreviewPersonaUseCase:
+        return PreviewPersonaUseCase(self.studio, self.customers)
+
+    @property
+    def list_eligible_customers(self) -> ListEligibleCustomersUseCase:
+        return ListEligibleCustomersUseCase(self.customers)
+
+    @property
+    def send_outreach(self) -> SendOutreachUseCase:
+        return SendOutreachUseCase(
+            self.customers, self.conversations, self.sessions, self.studio,
+            self.generator, self.audit)
+
 
 container = Container()
 
 
 def get_container() -> Container:
-    """Dependência do FastAPI. Testes injetam outro container por override."""
+    """Dependência do FastAPI. Testes injetam outro container por sobrescrita."""
     return container

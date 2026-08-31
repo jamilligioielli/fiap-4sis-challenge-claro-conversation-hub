@@ -1,7 +1,6 @@
 # Claro Conversation Hub
 
-Camada de orquestração conversacional (gerenciamento de workflow de atendimento) que unifica os canais digitais da Claro —
-WhatsApp, site, aplicativo e URA — sob um mesmo motor de linguagem natural, um
+Camada de orquestração conversacional (gerenciamento de workflow de atendimento) que unifica os canais digitais da Claro sob um mesmo motor de linguagem natural, um
 mesmo contexto de cliente e uma mesma persona de marca.
 
 Challenge FIAP 2026 · 4SIS · Time Labware · MVP (Fase 1)

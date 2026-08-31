@@ -92,6 +92,35 @@ montado como volume no Compose — editar um prompt não exige rebuild.
 
 ---
 
+## Ritmo da conversa
+
+Três comportamentos governam quando o assistente fala — e quando ele cala.
+
+**Ele espera o cliente terminar de escrever.** Cada mensagem reinicia uma janela
+de silêncio; o lote inteiro chega ao núcleo como um pedido só. "Oi, tudo bem?"
+seguido de "é que a minha franquia acabou de novo" produz uma resposta, não
+duas. A janela vem de `BOT_REPLY_DELAY_SECONDS` (30s por padrão) e o campo de
+texto continua liberado durante a espera — travá-lo destruiria o propósito.
+No contrato, a mensagem absorvida volta com `superseded: true`.
+
+**Depois do transbordo, ele para de falar.** Nada de "sua mensagem foi
+encaminhada": quem está com o caso é uma pessoa, e um robô comentando por cima é
+ruído para os dois lados. As mensagens seguem chegando à transcrição, à vista do
+atendente, e o campo `reply` volta vazio.
+
+**Ao encerrar, dispara a pesquisa.** Vale para os dois caminhos — o assistente
+reconhecendo uma despedida do cliente, ou o atendente clicando em *Encerrar
+atendimento* no console. A conversa fica em espera até a nota chegar, o hub
+insiste no máximo uma vez, e quem recusa é encerrado do mesmo jeito. O NPS do
+painel passa a ser a fórmula real (promotores menos detratores), não um proxy.
+
+```bash
+BOT_REPLY_DELAY_SECONDS=30    # 5 a 8 para gravar o vídeo
+NPS_ON_CLOSE=true
+```
+
+---
+
 ## Canal WhatsApp (Cloud API)
 
 Integração real com a WhatsApp Business Cloud API, com webhook de entrada,

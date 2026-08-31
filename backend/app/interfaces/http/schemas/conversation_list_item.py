@@ -30,3 +30,9 @@ class ConversationListItem(BaseModel):
     handover_requested: bool = False
     initiated_by_company: bool = False
     message_count: int = 0
+    nps_score: int | None = Field(
+        default=None, description="Nota dada pelo cliente no fim do atendimento.")
+    nps_category: str | None = Field(
+        default=None, description="`promotor`, `neutro`, `detrator` ou `sem resposta`.")
+    closed_by: str | None = Field(
+        default=None, description="Quem encerrou: `bot` ou o nome do atendente.")

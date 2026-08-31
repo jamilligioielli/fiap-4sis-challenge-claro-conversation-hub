@@ -40,6 +40,8 @@ async def health(container: Container = Depends(get_container)) -> HealthRespons
             response_generator=container.generator.generator_name,
             generative_ai=container.generative_ai,
             backend_systems=container.backends.available,
+            reply_delay_seconds=container.debouncer.window_seconds,
+            nps_on_close=container.settings.conversation.nps_on_close,
         ),
     )
 

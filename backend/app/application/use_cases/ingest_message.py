@@ -23,10 +23,12 @@ from ...domain.ports.intent_classifier import IntentClassifier
 from ...domain.ports.response_generator import GenerationRequest, ResponseGenerator
 from ...domain.ports.session_repository import SessionRepository
 from ...domain.ports.studio_config_repository import StudioConfigRepository
+from ...domain.services.closure_service import ClosureService
 from ...domain.services.context_confirmation import ContextConfirmationService
 from ...domain.services.handover_policy import HandoverPolicy
 from ...domain.services.identity_service import IdentityService
 from ...domain.services.intent_continuity import IntentContinuityService
+from ...domain.services.nps_service import NpsService
 from ...domain.services.persona_service import PersonaService
 from ...domain.services.routing_service import Flow, RoutingService
 from ...domain.value_objects.author import Author
@@ -90,6 +92,8 @@ class IngestMessageUseCase:
         routing: RoutingService | None = None,
         continuity: IntentContinuityService | None = None,
         context_confirmation: ContextConfirmationService | None = None,
+        nps: NpsService | None = None,
+        closure: ClosureService | None = None,
     ) -> None:
         self._sessions = sessions
         self._conversations = conversations
@@ -105,6 +109,8 @@ class IngestMessageUseCase:
         self._continuity = continuity or IntentContinuityService(
             handover_policy.confidence_threshold)
         self._context = context_confirmation or ContextConfirmationService()
+        self._nps = nps or NpsService()
+        self._closure = closure or ClosureService()
         self._identity = IdentityService(sessions, customers)
 
     # ===================================================================== fluxo
@@ -137,9 +143,19 @@ class IngestMessageUseCase:
             customer.last_inbound_at = conversation.updated_at
             await self._customers.save(customer)
 
+        # -- pesquisa em aberto: a próxima mensagem é a nota -----------------
+        if conversation.awaiting_nps:
+            return await self._collect_nps(conversation, session, command,
+                                           customer, customer_id, config)
+
         # -- a conversa já é de um atendente humano --------------------------
         if conversation.with_human:
             return await self._deliver_to_agent(conversation, session, command,
+                                                customer, customer_id, config)
+
+        # -- o cliente está se despedindo ------------------------------------
+        if self._closure.wants_to_end(command.text):
+            return await self._close_and_survey(conversation, session, command,
                                                 customer, customer_id, config)
 
         # -- o cliente está respondendo à pergunta de continuidade -----------
@@ -361,19 +377,106 @@ class IngestMessageUseCase:
             GeneratedResponse(text=reply, source=ResponseSource.template),
             "confirmacao_de_contexto", True, None, awaiting_confirmation=True)
 
+    # ============================================ encerramento e pesquisa NPS
+    async def _close_and_survey(self, conversation: Conversation, session: Session,
+                                command: IngestCommand, customer, customer_id: str,
+                                config, closed_by: str = "bot") -> IngestResult:
+        """Encerra o atendimento e abre a pesquisa na mesma mensagem.
+
+        A pergunta sai junto da despedida de propósito: pesquisa que chega
+        depois, fora do contexto, é a que ninguém responde.
+        """
+        from ...domain.ports.response_generator import GeneratedResponse
+
+        first_name = customer.first_name if customer else ""
+        conversation.close(closed_by=closed_by, with_survey=True)
+        session.open_survey()
+
+        reply = self._persona.apply(
+            self._nps.question(first_name), config, command.channel,
+            customer_first_name=first_name)
+
+        await self._persist(ConversationEvent(
+            channel=command.channel, customer_id=customer_id,
+            session_id=session.session_id, conversation_id=conversation.id,
+            author=Author.bot, text=reply, consent=command.consent,
+        ), source=ResponseSource.template)
+
+        conversation.record_message(command.text, command.channel, from_customer=True)
+        await self._conversations.save(conversation)
+        await self._sessions.save(session)
+        await self._audit.record("conversation.closed", customer_id, {
+            "conversation_id": conversation.id, "closed_by": closed_by,
+            "survey": "enviada",
+        })
+
+        return self._result(
+            conversation, session, command, config, reply,
+            conversation.intent or UNIDENTIFIED,
+            GeneratedResponse(text=reply, source=ResponseSource.template),
+            "encerramento", False, None, awaiting_nps=True)
+
+    async def _collect_nps(self, conversation: Conversation, session: Session,
+                           command: IngestCommand, customer, customer_id: str,
+                           config) -> IngestResult:
+        """Lê a nota. Insiste no máximo uma vez, e desiste com elegância."""
+        from ...domain.ports.response_generator import GeneratedResponse
+
+        first_name = customer.first_name if customer else ""
+        score = self._nps.interpret(command.text)
+
+        if score is not None:
+            conversation.record_nps(score, comment=command.text)
+            session.close_survey()
+            reply = self._nps.acknowledgement(score, first_name)
+            await self._audit.record("nps.answered", customer_id, {
+                "conversation_id": conversation.id, "score": score,
+                "category": conversation.nps.category,
+            })
+        elif self._nps.declined(command.text) or conversation.nps.attempts >= 1:
+            # Uma insistência basta. Duas viram cobrança, e o cliente já disse
+            # o que tinha para dizer ao não responder.
+            conversation.dismiss_nps()
+            session.close_survey()
+            reply = self._nps.farewell()
+            await self._audit.record("nps.declined", customer_id,
+                                     {"conversation_id": conversation.id})
+        else:
+            conversation.nps.attempts += 1
+            reply = self._nps.retry()
+
+        reply = self._persona.apply(reply, config, command.channel,
+                                    customer_first_name=first_name)
+
+        await self._persist(ConversationEvent(
+            channel=command.channel, customer_id=customer_id,
+            session_id=session.session_id, conversation_id=conversation.id,
+            author=Author.bot, text=reply, consent=command.consent,
+        ), source=ResponseSource.template)
+
+        conversation.record_message(command.text, command.channel, from_customer=True)
+        await self._conversations.save(conversation)
+        await self._sessions.save(session)
+
+        return self._result(
+            conversation, session, command, config, reply,
+            conversation.intent or UNIDENTIFIED,
+            GeneratedResponse(text=reply, source=ResponseSource.template),
+            "pesquisa_de_satisfacao", False, None,
+            awaiting_nps=conversation.awaiting_nps)
+
     # ================================================== conversa com o humano
     async def _deliver_to_agent(self, conversation: Conversation, session: Session,
                                 command: IngestCommand, customer, customer_id: str,
                                 config) -> IngestResult:
-        """O assistente não responde por cima de um atendente: a mensagem é
-        registrada, a conversa sobe na fila e quem responde é a pessoa."""
-        from ...domain.ports.response_generator import GeneratedResponse
+        """Depois do transbordo o assistente cala.
 
-        holding = self._persona.apply(
-            "Sua mensagem foi encaminhada ao atendente que está com o seu caso. "
-            "Ele responde em instantes.",
-            config, command.channel,
-            customer_first_name=customer.first_name if customer else "")
+        Ele não responde, não confirma recebimento, não diz "já já alguém te
+        atende". Quem está com o caso é uma pessoa, e um robô comentando por
+        cima é ruído para o cliente e para o atendente. A mensagem é registrada,
+        a conversa sobe na fila, e o silêncio é a resposta certa.
+        """
+        from ...domain.ports.response_generator import GeneratedResponse
 
         conversation.record_message(command.text, command.channel, from_customer=True)
         conversation.priority = Priority.high
@@ -383,9 +486,9 @@ class IngestMessageUseCase:
                                  {"conversation_id": conversation.id})
 
         return self._result(
-            conversation, session, command, config, holding,
+            conversation, session, command, config, "",
             conversation.intent or UNIDENTIFIED,
-            GeneratedResponse(text=holding, source=ResponseSource.template),
+            GeneratedResponse(text="", source=ResponseSource.template),
             "atendimento_humano", True,
             "Mensagem entregue ao atendente responsável pelo caso")
 
@@ -437,7 +540,8 @@ class IngestMessageUseCase:
     def _result(self, conversation: Conversation, session: Session,
                 command: IngestCommand, config, reply: str, intent, generated,
                 flow: str, recovered: bool, note: str | None,
-                awaiting_confirmation: bool = False) -> IngestResult:
+                awaiting_confirmation: bool = False,
+                awaiting_nps: bool = False) -> IngestResult:
         return IngestResult(
             conversation_id=conversation.id,
             session_id=session.session_id,
@@ -458,4 +562,7 @@ class IngestMessageUseCase:
             turns=session.turns,
             awaiting_context_confirmation=awaiting_confirmation
             or session.awaiting_context_confirmation,
+            awaiting_nps=awaiting_nps or conversation.awaiting_nps,
+            conversation_closed=conversation.closed_at is not None,
+            nps_score=conversation.nps.score if conversation.nps else None,
         )

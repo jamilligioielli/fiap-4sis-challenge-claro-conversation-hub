@@ -8,6 +8,8 @@ from ....container import Container, get_container
 from ..mappers import conversation_to_list_item, intent_to_dto, message_to_dto
 from ..schemas.agent_message_request import AgentMessageRequest
 from ..schemas.ai_panel_response import AIPanelResponse
+from ..schemas.close_conversation_request import CloseConversationRequest
+from ..schemas.close_conversation_response import CloseConversationResponse
 from ..schemas.conversation_detail_response import ConversationDetailResponse
 from ..schemas.conversation_list_item import ConversationListItem
 from ..schemas.error_response import ErrorResponse
@@ -116,3 +118,39 @@ async def reply_as_agent(
     if message is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversa não encontrada")
     return message_to_dto(message)
+
+
+@router.post(
+    "/{conversation_id}/close",
+    response_model=CloseConversationResponse,
+    responses=NOT_FOUND,
+    summary="Encerrar o atendimento e disparar a pesquisa de satisfação",
+    description=(
+        "Encerra o atendimento e envia a pesquisa de NPS ao cliente pelo último canal "
+        "que ele usou, na mesma mensagem da despedida.\n\n"
+        "A pesquisa sai igual quando quem encerra é o assistente — ao reconhecer uma "
+        "despedida do cliente — e quando é o atendente humano, por este endpoint. Medir "
+        "só o atendimento automatizado deixaria cego justamente o canal mais caro.\n\n"
+        "A conversa fica em espera até a nota chegar: a próxima mensagem do cliente é "
+        "lida como resposta à pesquisa. Quem não quiser responder é encerrado do mesmo "
+        "jeito — o hub insiste no máximo uma vez."
+    ),
+)
+async def close_conversation(
+    conversation_id: str,
+    payload: CloseConversationRequest,
+    container: Container = Depends(get_container),
+) -> CloseConversationResponse:
+    # Um lote de mensagens em espera não faz mais sentido depois do
+    # encerramento: seria responder a um atendimento que já acabou.
+    resultado = await container.close_conversation.execute(
+        conversation_id, closed_by=payload.agent, with_survey=payload.survey)
+    if resultado is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversa não encontrada")
+
+    await container.debouncer.flush(resultado.conversation.customer_id)
+    return CloseConversationResponse(
+        conversation=conversation_to_list_item(resultado.conversation),
+        survey_sent=resultado.survey_sent,
+        survey_message=resultado.survey_message,
+    )

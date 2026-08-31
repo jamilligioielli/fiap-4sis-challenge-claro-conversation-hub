@@ -21,6 +21,9 @@ TAXONOMY: dict[str, dict] = {
                      "mudar plano", "upgrade", "aumentar o plano", "migrar plano",
                      "quero o claro flex", "contratar plano", "mudar meu plano",
                      "aumentar minha franquia", "aumentar a franquia", "mais franquia",
+                     "franquia acabou", "acabou a franquia", "acabou minha franquia",
+                     "estourei a franquia", "estourou a franquia", "franquia estourou",
+                     "ficar sem internet todo mes", "acaba antes do fim do mes",
                      "mais internet", "mais dados", "mais gb", "plano maior",
                      "franquia maior", "outro plano", "plano com mais",
                      "aumentar meu plano", "subir de plano", "quanto ficaria um plano"],
@@ -56,8 +59,13 @@ TAXONOMY: dict[str, dict] = {
     },
     "consulta_informacao": {
         "label": "Consulta de Informação", "area": Area.marketing,
+        # "ver meu plano" é consulta, não mudança: o cliente quer saber onde
+        # está antes de decidir para onde vai. Tratar como venda seria empurrar
+        # oferta a quem só perguntou as horas.
         "keywords": ["quanto custa", "quais planos", "saber mais", "promocao", "como funciona",
-                     "planos familia", "duvida"],
+                     "planos familia", "duvida", "ver meu plano", "meu plano atual",
+                     "qual e o meu plano", "qual meu plano", "consultar meu plano",
+                     "quanto eu pago", "detalhes do plano"],
     },
 }
 

@@ -12,6 +12,7 @@ import logging
 
 from .application.use_cases.console import (GetConversationUseCase, ListConversationsUseCase,
                                             ReplyAsAgentUseCase, RequestHandoverUseCase)
+from .application.use_cases.close_conversation import CloseConversationUseCase
 from .application.use_cases.customer_context import GetCustomerContextUseCase
 from .application.use_cases.dashboard import GetDashboardMetricsUseCase
 from .application.use_cases.ingest_message import IngestMessageUseCase
@@ -32,6 +33,7 @@ from .domain.ports.session_repository import SessionRepository
 from .domain.ports.studio_config_repository import StudioConfigRepository
 from .domain.services.handover_policy import HandoverPolicy
 from .infrastructure import seed
+from .infrastructure.buffering.message_debouncer import MessageDebouncer
 from .infrastructure.integrations.mock_backend_systems import MockBackendSystems
 from .infrastructure.llm.llm_client import LLMClient
 from .infrastructure.llm.llm_intent_classifier import LLMIntentClassifier
@@ -69,6 +71,8 @@ class Container:
         self.settings = settings or get_settings()
         self._redis_adapter: RedisSessionRepository | None = None
         self.generative_ai = False
+        self.debouncer = MessageDebouncer(
+            self.settings.conversation.reply_delay_seconds)
 
     # ------------------------------------------------------------ ciclo de vida
     async def startup(self) -> None:
@@ -164,6 +168,11 @@ class Container:
     @property
     def reply_as_agent(self) -> ReplyAsAgentUseCase:
         return ReplyAsAgentUseCase(self.conversations, self.audit)
+
+    @property
+    def close_conversation(self) -> CloseConversationUseCase:
+        return CloseConversationUseCase(
+            self.conversations, self.sessions, self.customers, self.studio, self.audit)
 
     @property
     def customer_context(self) -> GetCustomerContextUseCase:

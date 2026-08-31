@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useParams } from 'react-router';
 import {
   Globe, MessageCircle, Smartphone, Phone, ArrowRight, User, Sparkles, Send,
-  UserPlus, ChevronRight, Loader2, Bot, Headset, Info,
+  UserPlus, ChevronRight, Loader2, Bot, Headset, Info, CheckCircle2, Star,
 } from 'lucide-react';
 
 import { api } from '../../api/client';
@@ -57,6 +57,22 @@ function ConversationView({ detail, reload }: {
       reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao enviar');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const [closed, setClosed] = useState<string | null>(null);
+
+  /** Encerra o atendimento e dispara a pesquisa de satisfação. */
+  async function close() {
+    setBusy(true); setError(null);
+    try {
+      const resultado = await api.closeConversation(detail.id, 'Admin CX');
+      setClosed(resultado.survey_message);
+      reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao encerrar');
     } finally {
       setBusy(false);
     }
@@ -160,7 +176,7 @@ function ConversationView({ detail, reload }: {
               {busy ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
             </button>
           </div>
-          <div className="flex items-center gap-3 mt-3">
+          <div className="flex items-center gap-3 mt-3 flex-wrap">
             <button
               onClick={handover}
               disabled={busy || detail.status === 'transferred'}
@@ -169,12 +185,32 @@ function ConversationView({ detail, reload }: {
               <UserPlus className="w-4 h-4" />
               {detail.status === 'transferred' ? 'Já transferida' : 'Assumir como humano'}
             </button>
+            <button
+              onClick={close}
+              disabled={busy || detail.status === 'pending'}
+              className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm font-medium flex items-center gap-2 disabled:opacity-40"
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              {detail.status === 'pending' ? 'Encerrada' : 'Encerrar atendimento'}
+            </button>
             <span className="text-xs text-gray-500">
               A resposta sai pelo último canal usado pelo cliente
               {detail.channels_used.length > 0 &&
                 ` (${channelLabels[detail.channels_used[detail.channels_used.length - 1]]})`}
             </span>
           </div>
+
+          {/* O encerramento dispara a pesquisa igual ao do bot: medir só o
+              atendimento automatizado deixaria cego o canal mais caro. */}
+          {closed && (
+            <div className="mt-3 px-3 py-2 bg-violet-50 border border-violet-200 rounded-lg">
+              <p className="text-xs font-medium text-violet-900 flex items-center gap-1.5 mb-1">
+                <Star className="w-3.5 h-3.5" />
+                Pesquisa de satisfação enviada ao cliente
+              </p>
+              <p className="text-xs text-violet-800 italic">"{closed}"</p>
+            </div>
+          )}
         </div>
       </div>
 

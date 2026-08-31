@@ -13,6 +13,7 @@ from ..value_objects.intent import Intent
 from ..value_objects.priority import Priority
 from .handover import Handover
 from .identifiers import new_id
+from .nps_survey import NpsSurvey
 
 
 class Conversation(BaseModel):
@@ -37,6 +38,12 @@ class Conversation(BaseModel):
         default=False,
         description="Verdadeiro quando a Claro iniciou o contato, e não o cliente.",
     )
+    nps: NpsSurvey | None = Field(
+        default=None,
+        description="Pesquisa disparada no encerramento. Presente e sem nota "
+                    "significa que o cliente não respondeu.",
+    )
+    closed_at: datetime | None = None
 
     # -- invariantes ------------------------------------------------------
     def apply_intent(self, intent: Intent, governs_area: bool = True) -> None:
@@ -78,7 +85,41 @@ class Conversation(BaseModel):
         self.handover.assigned_agent = agent
         self.updated_at = utcnow()
 
-    def close(self) -> None:
+    def close(self, closed_by: str = "bot", with_survey: bool = False) -> None:
+        """Encerra o atendimento e, opcionalmente, abre a pesquisa.
+
+        Quem encerra é registrado porque a leitura da nota depende disso: um 6
+        depois de um humano assumir conta uma história diferente de um 6 que o
+        assistente resolveu sozinho.
+        """
+        if self.status is ConversationStatus.pending:
+            return
+        self.closed_at = utcnow()
+        self.updated_at = self.closed_at
+
+        # Com pesquisa, o atendimento acabou mas a conversa não: ela fica em
+        # espera para receber a nota. Fechá-la aqui faria a resposta do cliente
+        # abrir uma conversa nova, e a nota se perderia do atendimento que a
+        # motivou — que é justamente o que dá sentido à nota.
+        if with_survey and self.nps is None:
+            self.nps = NpsSurvey(closed_by=closed_by)
+            self.status = ConversationStatus.waiting
+        else:
+            self.status = ConversationStatus.pending
+
+    def record_nps(self, score: int, comment: str = "") -> None:
+        if self.nps is None:
+            raise ValueError("Não há pesquisa aberta nesta conversa.")
+        self.nps.record(score, comment)
+        self.status = ConversationStatus.pending
+        self.updated_at = utcnow()
+
+    def dismiss_nps(self) -> None:
+        """O cliente não quis dar nota. A conversa encerra do mesmo jeito —
+        insistir seria transformar a pesquisa em incômodo."""
+        if self.nps is not None:
+            self.nps.attempts += 1
+            self.nps.dismissed = True
         self.status = ConversationStatus.pending
         self.updated_at = utcnow()
 
@@ -100,6 +141,16 @@ class Conversation(BaseModel):
     @property
     def with_human(self) -> bool:
         return self.status is ConversationStatus.transferred
+
+    @property
+    def awaiting_nps(self) -> bool:
+        """Pesquisa enviada, sem nota e ainda aberta.
+
+        Difere de "sem nota": uma pesquisa recusada também fica sem nota, e ali
+        o hub já parou de perguntar. Confundir os dois faria o assistente ler a
+        próxima mensagem do cliente como nota para sempre.
+        """
+        return self.nps is not None and self.nps.open
 
     @property
     def subject(self) -> str:

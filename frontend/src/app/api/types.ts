@@ -43,6 +43,11 @@ export interface HubReply {
   response_source: ResponseSource;
   response_model: string | null;
   awaiting_context_confirmation: boolean;
+  awaiting_nps: boolean;
+  conversation_closed: boolean;
+  nps_score: number | null;
+  /** A mensagem foi agrupada com outra mais recente — o hub aguarda o cliente terminar. */
+  superseded: boolean;
   handover_triggered: boolean;
   handover_reason: string | null;
   services_consulted: string[];
@@ -113,6 +118,12 @@ export interface EligibleCustomer {
   requires_template: boolean;
 }
 
+export interface ClosedConversation {
+  conversation: ConversationListItem;
+  survey_sent: boolean;
+  survey_message: string;
+}
+
 export interface OutreachResult {
   conversation_id: string;
   customer_id: string;
@@ -159,6 +170,9 @@ export interface ConversationListItem {
   initiated_by_company: boolean;
   message_count: number;
   started_at: string;
+  nps_score: number | null;
+  nps_category: string | null;
+  closed_by: string | null;
 }
 
 export interface Message {
@@ -312,6 +326,9 @@ export interface Health {
     response_generator: string;
     generative_ai: boolean;
     backend_systems: string[];
+    /** Janela de silêncio, em segundos, antes de o assistente responder. */
+    reply_delay_seconds: number;
+    nps_on_close: boolean;
   };
 }
 

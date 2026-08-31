@@ -49,6 +49,10 @@ export const hubReply: HubReply = {
   response_source: 'generative',
   response_model: 'llama-3.3-70b-versatile',
   awaiting_context_confirmation: false,
+  awaiting_nps: false,
+  conversation_closed: false,
+  nps_score: null,
+  superseded: false,
   handover_triggered: false,
   handover_reason: null,
   services_consulted: ['crm', 'catalogo'],
@@ -139,6 +143,9 @@ export const conversationItem: ConversationListItem = {
   initiated_by_company: false,
   message_count: 4,
   started_at: '2026-08-30T19:58:00Z',
+  nps_score: null,
+  nps_category: null,
+  closed_by: null,
 };
 
 export const conversationDetail: ConversationDetail = {
@@ -164,6 +171,37 @@ export const conversationDetail: ConversationDetail = {
     handover: { requested: false, reason: null, assigned_agent: null,
                 services_consulted: [], transcript_size: 2 },
   },
+};
+
+/** Atendimento encerrado com a pesquisa aberta, esperando a nota. */
+export const npsReply: HubReply = {
+  ...hubReply,
+  reply: 'Antes de encerrar, Maria: de 0 a 10, o quanto você recomendaria a Claro '
+       + 'para um amigo ou familiar? Pode responder só com o número.',
+  flow: 'encerramento',
+  awaiting_nps: true,
+  conversation_closed: true,
+  response_source: 'template',
+  response_model: null,
+};
+
+/** Mensagem absorvida por outra mais recente do mesmo cliente. */
+export const supersededReply: HubReply = {
+  ...hubReply,
+  reply: '',
+  flow: 'agrupada',
+  superseded: true,
+};
+
+/** Conversa já com o atendente: o assistente não responde mais. */
+export const silentReply: HubReply = {
+  ...hubReply,
+  reply: '',
+  flow: 'atendimento_humano',
+  context_recovered: true,
+  context_note: 'Mensagem entregue ao atendente responsável pelo caso',
+  handover_triggered: true,
+  handover_reason: 'Cliente solicitou falar com atendente',
 };
 
 export const emptyDashboard: Dashboard = {
@@ -248,6 +286,8 @@ export const health: Health = {
     response_generator: 'modelo de texto',
     generative_ai: false,
     backend_systems: ['crm', 'catalogo'],
+    reply_delay_seconds: 30,
+    nps_on_close: true,
   },
 };
 

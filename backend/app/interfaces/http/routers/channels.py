@@ -6,6 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException, Path, status
 from ....application.dto.ingest_command import IngestCommand
 from ....container import Container, get_container
 from ....domain.value_objects.channel import Channel
+from ....domain.value_objects.response_source import ResponseSource
+from ....domain.value_objects.unidentified_intent import UNIDENTIFIED
 from ..mappers import intent_to_dto
 from ..schemas.error_response import ErrorResponse
 from ..schemas.greeting_response import GreetingResponse
@@ -40,9 +42,17 @@ async def ingest(
     payload: InboundMessageRequest = ...,
     container: Container = Depends(get_container),
 ) -> HubReplyResponse:
+    # Espera o cliente terminar de escrever. A chamada fica aberta durante a
+    # janela de silêncio; se outra mensagem do mesmo cliente chegar antes, ela
+    # assume o lote e esta retorna sem resposta — quem responde é a última.
+    chave = payload.customer_id or payload.external_id or "anonimo"
+    texto = await container.debouncer.submit(chave, payload.text)
+    if texto is None:
+        return _superseded(channel)
+
     try:
         result = await container.ingest_message.execute(IngestCommand(
-            channel=channel, text=payload.text, customer_id=payload.customer_id,
+            channel=channel, text=texto, customer_id=payload.customer_id,
             external_id=payload.external_id, consent=payload.consent,
         ))
     except PermissionError as exc:
@@ -59,6 +69,27 @@ async def ingest(
         handover_triggered=result.handover_triggered,
         handover_reason=result.handover_reason,
         services_consulted=result.services_consulted, turns=result.turns,
+        awaiting_nps=result.awaiting_nps,
+        conversation_closed=result.conversation_closed,
+        nps_score=result.nps_score,
+    )
+
+
+def _superseded(channel: Channel) -> HubReplyResponse:
+    """Resposta de uma mensagem que foi absorvida por outra mais recente.
+
+    Não é erro: é o desenho funcionando. O cliente mandou "oi" e, antes de a
+    janela fechar, mandou o pedido de verdade — as duas viram uma rodada só, e
+    a resposta sai na chamada que fechou o lote."""
+    return HubReplyResponse(
+        conversation_id="", session_id="", customer_id="", channel=channel,
+        reply="", intent=intent_to_dto(UNIDENTIFIED), flow="agrupada",
+        persona_applied="", persona_version=0,
+        response_source=ResponseSource.template.value, response_model=None,
+        context_recovered=False, context_note=None,
+        awaiting_context_confirmation=False, handover_triggered=False,
+        handover_reason=None, services_consulted=[], turns=0,
+        superseded=True,
     )
 
 

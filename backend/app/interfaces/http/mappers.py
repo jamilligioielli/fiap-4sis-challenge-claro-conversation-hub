@@ -52,6 +52,9 @@ def conversation_to_list_item(conversation: Conversation,
         handover_requested=conversation.handover.requested,
         initiated_by_company=conversation.initiated_by_company,
         message_count=message_count,
+        nps_score=conversation.nps.score if conversation.nps else None,
+        nps_category=conversation.nps.category if conversation.nps else None,
+        closed_by=conversation.nps.closed_by if conversation.nps else None,
     )
 
 

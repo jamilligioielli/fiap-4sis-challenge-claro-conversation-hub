@@ -19,6 +19,7 @@ vi.mock('../../api/client', () => ({
     getCustomerContext: vi.fn(),
     replyAsAgent: vi.fn(),
     requestHandover: vi.fn(),
+    closeConversation: vi.fn(),
     previewPersona: vi.fn(),
     listCustomers: vi.fn(),
   },
@@ -184,6 +185,62 @@ describe('conversa ativa', () => {
     renderConversation();
 
     expect(await screen.findAllByText(/App Claro/)).not.toHaveLength(0);
+  });
+});
+
+describe('encerramento pelo atendente', () => {
+  function renderConversation() {
+    return renderAt(<Conversation />, {
+      path: '/console/conversation/:id', route: '/console/conversation/conv1',
+    });
+  }
+
+  beforeEach(() => {
+    mocked.closeConversation.mockResolvedValue({
+      conversation: { ...fixtures.conversationItem, status: 'pending', closed_by: 'Admin CX' },
+      survey_sent: true,
+      survey_message: 'Antes de encerrar, Maria: de 0 a 10, o quanto você recomendaria '
+                    + 'a Claro para um amigo ou familiar?',
+    });
+  });
+
+  it('oferece encerrar o atendimento', async () => {
+    renderConversation();
+
+    expect(await screen.findByRole('button', { name: /Encerrar atendimento/ }))
+      .toBeEnabled();
+  });
+
+  it('encerra e mostra a pesquisa que foi enviada ao cliente', async () => {
+    const user = userEvent.setup();
+    renderConversation();
+
+    await user.click(await screen.findByRole('button', { name: /Encerrar atendimento/ }));
+
+    await waitFor(() => expect(mocked.closeConversation)
+      .toHaveBeenCalledWith('conv1', 'Admin CX'));
+    expect(await screen.findByText(/Pesquisa de satisfação enviada/)).toBeInTheDocument();
+    expect(screen.getByText(/0 a 10/)).toBeInTheDocument();
+  });
+
+  it('não deixa encerrar duas vezes', async () => {
+    mocked.getConversation.mockResolvedValue({
+      ...fixtures.conversationDetail, status: 'pending',
+    });
+
+    renderConversation();
+
+    expect(await screen.findByRole('button', { name: /Encerrada/ })).toBeDisabled();
+  });
+
+  it('mostra o erro quando o encerramento falha', async () => {
+    const user = userEvent.setup();
+    mocked.closeConversation.mockRejectedValue(new Error('Conversa não encontrada'));
+    renderConversation();
+
+    await user.click(await screen.findByRole('button', { name: /Encerrar atendimento/ }));
+
+    expect(await screen.findByText('Conversa não encontrada')).toBeInTheDocument();
   });
 });
 

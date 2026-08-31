@@ -20,6 +20,7 @@ from app.infrastructure import seed
 from app.infrastructure.integrations.mock_backend_systems import MockBackendSystems
 from app.infrastructure.llm.rule_based_classifier import RuleBasedIntentClassifier
 from app.infrastructure.llm.template_response_generator import TemplateResponseGenerator
+from app.infrastructure.buffering.message_debouncer import MessageDebouncer
 from app.infrastructure.messaging.whatsapp_cloud import WhatsAppCloudGateway
 from app.infrastructure.persistence.memory import (InMemoryAuditLog,
                                                    InMemoryConversationRepository,
@@ -43,6 +44,9 @@ async def build_container() -> Container:
     container.backends = MockBackendSystems()
     container.whatsapp = WhatsAppCloudGateway(container.settings.whatsapp)
     container.generative_ai = False
+    # Sem janela de espera: o agrupamento de mensagens tem testes próprios, e
+    # trinta segundos por asserção tornariam a suíte inviável.
+    container.debouncer = MessageDebouncer(0)
     await seed.populate(container.customers, container.conversations, container.studio)
     return container
 

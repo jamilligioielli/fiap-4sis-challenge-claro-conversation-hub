@@ -248,13 +248,16 @@ class TestConsole:
         client.post(f"/api/v1/conversations/{conversa_id}/handover",
                     json={"reason": "pedido do cliente", "agent": "Ana"})
 
-        depois = send(client, "web", "obrigada, Ana", maria.id).json()
+        depois = send(client, "web", "ainda estou aqui, Ana", maria.id).json()
 
         assert depois["conversation_id"] == conversa_id
-        assert "atendente" in depois["reply"].lower()
+        # O assistente não diz nada: quem está com o caso é uma pessoa.
+        assert depois["reply"] == ""
         detalhe = client.get(f"/api/v1/conversations/{conversa_id}").json()
         assert detalhe["status"] == "transferred"
         assert detalhe["ai"]["handover"]["assigned_agent"] == "Ana"
+        # ...mas a mensagem chegou à transcrição, à vista do atendente.
+        assert any(m["text"] == "ainda estou aqui, Ana" for m in detalhe["messages"])
 
 
 # =================================================================== dashboard
@@ -536,3 +539,204 @@ class TestRegressoesDeConversa:
         assert retomada["intent"]["slug"] == "alteracao_plano"
         assert retomada["flow"] == "venda"
         assert "catalogo_planos" in retomada["services_consulted"]
+
+
+# ==================================================== silêncio após transbordo
+class TestSilencioAposTransbordo:
+    """Depois do transbordo, quem fala é a pessoa.
+
+    O assistente não responde, não confirma recebimento e não diz "já já alguém
+    te atende": um robô comentando por cima do atendente é ruído para os dois
+    lados da conversa.
+    """
+
+    def _transferir(self, client, maria) -> str:
+        conversa = send(client, "web", "quero falar com atendente", maria.id).json()
+        conversa_id = conversa["conversation_id"]
+        client.post(f"/api/v1/conversations/{conversa_id}/handover",
+                    json={"reason": "pedido do cliente", "agent": "Ana"})
+        return conversa_id
+
+    def test_o_assistente_nao_responde_mais_nada(self, client, maria):
+        conversa_id = self._transferir(client, maria)
+
+        for texto in ("tudo bem?", "consegue ver meu caso?", "alô?"):
+            resposta = send(client, "web", texto, maria.id).json()
+            assert resposta["reply"] == "", texto
+            assert resposta["conversation_id"] == conversa_id
+
+    def test_as_mensagens_continuam_chegando_ao_atendente(self, client, maria):
+        conversa_id = self._transferir(client, maria)
+        send(client, "web", "consegue ver meu caso?", maria.id)
+
+        detalhe = client.get(f"/api/v1/conversations/{conversa_id}").json()
+
+        textos = [m["text"] for m in detalhe["messages"]]
+        assert "consegue ver meu caso?" in textos
+        # nenhuma fala do bot depois da transferência
+        indice = textos.index("consegue ver meu caso?")
+        assert all(m["author"] != "bot" for m in detalhe["messages"][indice:])
+
+    def test_a_conversa_sobe_na_fila(self, client, maria):
+        conversa_id = self._transferir(client, maria)
+        send(client, "web", "alguém?", maria.id)
+
+        fila = client.get("/api/v1/conversations").json()
+        atual = next(c for c in fila if c["id"] == conversa_id)
+        assert atual["priority"] == "high"
+
+    def test_o_atendente_responde_e_a_resposta_chega(self, client, maria):
+        conversa_id = self._transferir(client, maria)
+
+        client.post(f"/api/v1/conversations/{conversa_id}/messages",
+                    json={"text": "Oi, sou a Ana. Já estou com o seu caso."})
+
+        detalhe = client.get(f"/api/v1/conversations/{conversa_id}").json()
+        assert detalhe["messages"][-1]["author"] == "agent"
+
+
+# ================================================ pesquisa de satisfação (NPS)
+class TestPesquisaDeSatisfacao:
+    def test_a_despedida_do_cliente_encerra_e_dispara_a_pesquisa(self, client, maria):
+        send(client, "whatsapp", "quero aumentar minha franquia", maria.id)
+
+        fim = send(client, "whatsapp", "obrigada, era só isso", maria.id).json()
+
+        assert fim["awaiting_nps"] is True
+        assert fim["conversation_closed"] is True
+        assert "0 a 10" in fim["reply"]
+
+    def test_o_atendente_encerrando_dispara_a_mesma_pesquisa(self, client, maria):
+        conversa = send(client, "web", "quero falar com atendente", maria.id).json()
+        conversa_id = conversa["conversation_id"]
+
+        encerrada = client.post(f"/api/v1/conversations/{conversa_id}/close",
+                                json={"agent": "Ana Ribeiro"}).json()
+
+        assert encerrada["survey_sent"] is True
+        assert "0 a 10" in encerrada["survey_message"]
+        assert encerrada["conversation"]["closed_by"] == "Ana Ribeiro"
+
+    def test_a_nota_do_cliente_e_registrada_com_a_categoria(self, client, maria):
+        send(client, "whatsapp", "quero aumentar minha franquia", maria.id)
+        send(client, "whatsapp", "obrigada, era só isso", maria.id)
+
+        resposta = send(client, "whatsapp", "9", maria.id).json()
+
+        assert resposta["nps_score"] == 9
+        assert resposta["awaiting_nps"] is False
+        fila = client.get("/api/v1/conversations").json()
+        assert fila[0]["nps_category"] == "promotor"
+
+    def test_reconhece_a_nota_escrita_por_extenso_ou_com_texto(self, client, maria, felipe):
+        for cliente, texto, esperado in ((maria, "nota 10", 10), (felipe, "daria uns 4", 4)):
+            send(client, "web", "quero mudar de plano", cliente.id)
+            send(client, "web", "valeu, era só isso", cliente.id)
+
+            resposta = send(client, "web", texto, cliente.id).json()
+
+            assert resposta["nps_score"] == esperado, texto
+
+    def test_a_resposta_muda_conforme_a_nota(self, client, maria, felipe):
+        def encerrar_e_avaliar(cliente, nota):
+            send(client, "web", "quero mudar de plano", cliente.id)
+            send(client, "web", "obrigado, resolvido", cliente.id)
+            return send(client, "web", str(nota), cliente.id).json()["reply"]
+
+        detrator = encerrar_e_avaliar(maria, 3)
+        promotor = encerrar_e_avaliar(felipe, 10)
+
+        assert detrator != promotor
+        assert "devendo" in detrator.lower()
+
+    def test_insiste_uma_vez_e_desiste_com_elegancia(self, client, maria):
+        send(client, "web", "quero mudar de plano", maria.id)
+        send(client, "web", "obrigada, era só isso", maria.id)
+
+        primeira = send(client, "web", "sei lá", maria.id).json()
+        segunda = send(client, "web", "sei lá de novo", maria.id).json()
+
+        assert primeira["awaiting_nps"] is True
+        assert "0 a 10" in primeira["reply"]
+        assert segunda["awaiting_nps"] is False, "insistir duas vezes vira cobrança"
+
+    def test_quem_recusa_e_encerrado_sem_insistencia(self, client, maria):
+        send(client, "web", "quero mudar de plano", maria.id)
+        send(client, "web", "obrigada, era só isso", maria.id)
+
+        recusa = send(client, "web", "não quero responder", maria.id).json()
+
+        assert recusa["awaiting_nps"] is False
+        assert recusa["nps_score"] is None
+
+    def test_uma_despedida_educada_no_meio_do_pedido_nao_encerra(self, client, maria):
+        resposta = send(client, "web",
+                        "Obrigada por me mostrar as opções, mas antes quero saber "
+                        "quanto fica o plano de 50GB", maria.id).json()
+
+        assert resposta["conversation_closed"] is False
+        assert resposta["awaiting_nps"] is False
+
+    def test_a_nota_alimenta_o_nps_do_painel(self, client, maria):
+        send(client, "web", "quero mudar de plano", maria.id)
+        send(client, "web", "obrigada, era só isso", maria.id)
+        send(client, "web", "10", maria.id)
+
+        painel = client.get("/api/v1/dashboard").json()
+
+        assert painel["nps"]["value"] == 100
+
+    def test_encerrar_conversa_inexistente_da_404(self, client):
+        assert client.post("/api/v1/conversations/conv_fantasma/close",
+                           json={"agent": "Ana"}).status_code == 404
+
+
+# ============================================ agrupamento pela janela de espera
+class TestJanelaDeEspera:
+    """A janela vive no roteador, entre o transporte e o caso de uso.
+
+    A suíte roda com janela zero — o agrupamento em si é verificado em
+    `test_debounce.py`. Aqui só se confirma que o contrato HTTP diz a verdade
+    sobre o que aconteceu.
+    """
+
+    def test_com_janela_zero_a_resposta_sai_na_hora(self, client, maria):
+        resposta = send(client, "web", "quero mudar de plano", maria.id).json()
+
+        assert resposta["superseded"] is False
+        assert resposta["reply"]
+
+    def test_a_mensagem_absorvida_e_declarada_no_contrato(self, client, container, maria):
+        """Uma mensagem agrupada não é erro nem resposta vazia sem explicação:
+        o campo `superseded` diz que o hub está esperando o cliente terminar."""
+        from app.infrastructure.buffering.message_debouncer import MessageDebouncer
+
+        class SempreAgrupa(MessageDebouncer):
+            async def submit(self, key: str, text: str) -> str | None:
+                return None
+
+        container.debouncer = SempreAgrupa(0)
+
+        resposta = send(client, "web", "oi, tudo bem?", maria.id).json()
+
+        assert resposta["superseded"] is True
+        assert resposta["reply"] == ""
+        assert resposta["flow"] == "agrupada"
+        assert client.get("/api/v1/conversations").json() == [], \
+            "mensagem agrupada não abre conversa sozinha"
+
+    def test_encerrar_descarta_o_lote_em_espera(self, client, container, maria):
+        conversa = send(client, "web", "quero mudar de plano", maria.id).json()
+        descartados: list[str] = []
+        original = container.debouncer.flush
+
+        async def espiao(key: str) -> None:
+            descartados.append(key)
+            await original(key)
+
+        container.debouncer.flush = espiao
+
+        client.post(f"/api/v1/conversations/{conversa['conversation_id']}/close",
+                    json={"agent": "Ana"})
+
+        assert descartados == [maria.id]

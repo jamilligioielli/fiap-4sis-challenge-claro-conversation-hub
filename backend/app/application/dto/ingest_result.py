@@ -28,3 +28,6 @@ class IngestResult:
     services_consulted: list[str] = field(default_factory=list)
     turns: int = 0
     awaiting_context_confirmation: bool = False
+    awaiting_nps: bool = False
+    conversation_closed: bool = False
+    nps_score: int | None = None

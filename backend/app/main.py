@@ -11,11 +11,11 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
 
 from .container import container
 from .interfaces.http import docs as local_docs
 from .interfaces.http import openapi as spec
+from .interfaces.http import spa
 from .interfaces.http.routers import (channels, conversations, customers, dashboard,
                                       operations, outreach, studio, whatsapp)
 from .settings import get_settings
@@ -76,9 +76,11 @@ def create_app() -> FastAPI:
     # para que a documentação não dependa de CDN durante a demonstração.
     local_docs.register(app)
 
-    @app.get("/", include_in_schema=False)
-    async def root() -> RedirectResponse:
-        return RedirectResponse("/docs")
+    # Por último, e só na imagem de implantação: o console embutido. Precisa vir
+    # depois de todos os routers porque a rota curinga da SPA engoliria
+    # qualquer caminho registrado depois dela.
+    if not spa.register(app):
+        spa.register_root_redirect(app)
 
     return app
 

@@ -36,3 +36,17 @@ class HubReplyResponse(BaseModel):
     handover_reason: str | None = None
     services_consulted: list[str] = Field(default_factory=list)
     turns: int = 0
+    awaiting_nps: bool = Field(
+        default=False,
+        description="A pesquisa de satisfação foi enviada e o hub aguarda a nota. "
+                    "Enquanto verdadeiro, a próxima mensagem do cliente é lida como "
+                    "resposta à pesquisa, e não como novo pedido.")
+    conversation_closed: bool = Field(
+        default=False, description="O atendimento foi encerrado nesta conversa.")
+    nps_score: int | None = Field(
+        default=None, description="Nota de 0 a 10, quando o cliente já respondeu.")
+    superseded: bool = Field(
+        default=False,
+        description="Esta mensagem foi agrupada com outra mais recente do mesmo cliente "
+                    "e não gerou resposta própria — o hub aguarda o cliente terminar de "
+                    "escrever antes de responder. A resposta sai na última chamada do lote.")

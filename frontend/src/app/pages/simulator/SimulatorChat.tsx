@@ -3,11 +3,11 @@ import { Link, useParams } from 'react-router';
 import {
   MessageCircle, Globe, Smartphone, Phone, Send, Sparkles, ArrowRightLeft,
   UserPlus, Server, Loader2, ArrowLeft, ExternalLink, PenLine, FileText,
-  History, Check, X, Info, Megaphone, Wand2,
+  History, Check, X, Info, Megaphone, Wand2, Star, CheckCircle2,
 } from 'lucide-react';
 
 import { api } from '../../api/client';
-import { useCustomerContext, useCustomerConversations } from '../../api/hooks';
+import { useCustomerContext, useCustomerConversations, useHealth } from '../../api/hooks';
 import type {
   Channel, ConversationListItem, CustomerContext as CustomerCtx, HubReply,
   Message, ResponseSource,
@@ -79,13 +79,17 @@ export default function SimulatorChat() {
   const { customerId } = useParams<{ customerId: string }>();
   const customerState = useCustomerContext(customerId);
   const historyState = useCustomerConversations(customerId);
+  // A janela de espera é configuração do servidor: a tela lê o valor real em
+  // vez de repetir um número que pode divergir do que o hub está fazendo.
+  const waitDelay = Math.round(useHealth().data?.components.reply_delay_seconds ?? 0);
 
   const [channel, setChannel] = useState<Channel>('whatsapp');
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [bubbles, setBubbles] = useState<Bubble[]>([]);
   const [draft, setDraft] = useState('');
   const [booting, setBooting] = useState(true);
-  const [sending, setSending] = useState(false);
+  const [inFlight, setInFlight] = useState(0);
+  const waiting = inFlight > 0;
   const [error, setError] = useState<string | null>(null);
   const [lastReply, setLastReply] = useState<HubReply | null>(null);
   const [personaApplied, setPersonaApplied] = useState<string | null>(null);
@@ -100,7 +104,7 @@ export default function SimulatorChat() {
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [bubbles, sending]);
+  }, [bubbles, waiting]);
 
   /** Abre (ou retoma) a conversa deste cliente e traz o que já foi dito. */
   const boot = useCallback(async (target: Channel) => {
@@ -145,7 +149,7 @@ export default function SimulatorChat() {
   }, [customerId, boot]);
 
   function switchChannel(next: Channel) {
-    if (next === channel || sending) return;
+    if (next === channel) return;
     setChannel(next);
     setShowVoice(false);
     setBubbles((prev) => [...prev, {
@@ -158,9 +162,12 @@ export default function SimulatorChat() {
 
   async function send(text: string) {
     const clean = text.trim();
-    if (!clean || sending || !customerId) return;
+    if (!clean || !customerId) return;
 
-    setSending(true);
+    // Contador, e não booleano: durante a janela de silêncio há mais de uma
+    // chamada aberta ao mesmo tempo, e é assim que o cliente consegue mandar a
+    // continuação do pedido antes de o assistente responder.
+    setInFlight((n) => n + 1);
     setError(null);
     setDraft('');
     const mineKey = `mine-${Date.now()}`;
@@ -170,26 +177,43 @@ export default function SimulatorChat() {
 
     try {
       const reply = await api.sendAsCustomer(channel, { text: clean, customer_id: customerId });
+
+      // Mensagem absorvida pelo lote de outra mais recente: nada a mostrar. A
+      // resposta virá na chamada que fechar a janela, e o balão do cliente
+      // continua na tela — ele escreveu, e escreveu antes de terminar.
+      if (reply.superseded) return;
+
       setConversationId(reply.conversation_id);
       setLastReply(reply);
       setPersonaApplied(reply.persona_applied);
       setPersonaVersion(reply.persona_version);
 
-      setBubbles((prev) => [...prev, {
-        key: `bot-${reply.conversation_id}-${prev.length}`,
-        author: 'bot',
-        text: reply.reply,
-        channel,
-        source: reply.response_source,
-        intent: reply.intent.name,
-      }]);
+      // Depois do transbordo o assistente cala. Balão vazio na tela seria pior
+      // do que silêncio: uma nota de sistema explica sem fingir que houve fala.
+      if (!reply.reply) {
+        if (reply.context_note) {
+          setBubbles((prev) => [...prev, {
+            key: `nota-${prev.length}-${Date.now()}`,
+            author: 'system', text: reply.context_note!, channel,
+          }]);
+        }
+      } else {
+        setBubbles((prev) => [...prev, {
+          key: `bot-${reply.conversation_id}-${prev.length}`,
+          author: 'bot',
+          text: reply.reply,
+          channel,
+          source: reply.response_source,
+          intent: reply.intent.name,
+        }]);
+      }
       historyState.reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao enviar');
       setBubbles((prev) => prev.filter((b) => b.key !== mineKey));
       setDraft(clean);
     } finally {
-      setSending(false);
+      setInFlight((n) => n - 1);
     }
   }
 
@@ -214,6 +238,9 @@ export default function SimulatorChat() {
   }
 
   const awaiting = lastReply?.awaiting_context_confirmation ?? false;
+  const awaitingNps = lastReply?.awaiting_nps ?? false;
+  const withAgent = (lastReply?.handover_triggered ?? false) && !lastReply?.reply;
+  const closed = (lastReply?.conversation_closed ?? false) && !awaitingNps;
   const readOnly = replayed !== null && replayed !== conversationId;
 
   return (
@@ -225,7 +252,7 @@ export default function SimulatorChat() {
         <div className="flex-1 flex flex-col min-w-0 bg-white">
           <ChannelBar
             channel={channel}
-            disabled={sending || booting}
+            disabled={booting}
             onSwitch={switchChannel}
             onVoice={() => setShowVoice((v) => !v)}
             voiceOpen={showVoice}
@@ -247,11 +274,17 @@ export default function SimulatorChat() {
                   <BubbleRow key={bubble.key} bubble={bubble} />
                 ))}
 
-                {sending && (
+                {waiting && (
                   <div className="flex justify-start">
                     <div className="bg-white border border-gray-200 rounded-2xl px-4 py-3 flex items-center gap-2 shadow-sm">
                       <Loader2 className="w-4 h-4 animate-spin text-[#E10019]" />
-                      <span className="text-sm text-gray-500">escrevendo…</span>
+                      <span className="text-sm text-gray-500">
+                        {/* A janela de silêncio faz o hub esperar o cliente terminar.
+                            Sem dizer isso, a espera parece travamento. */}
+                        {waitDelay > 0
+                          ? `aguardando você terminar de escrever (até ${waitDelay}s)…`
+                          : 'escrevendo…'}
+                      </span>
                     </div>
                   </div>
                 )}
@@ -262,7 +295,7 @@ export default function SimulatorChat() {
           </div>
 
           {/* respostas rápidas para a pergunta de continuidade */}
-          {awaiting && !sending && (
+          {awaiting && (
             <div className="px-5 py-3 bg-blue-50 border-t border-blue-200">
               <p className="text-xs text-blue-900 mb-2 font-medium">
                 O assistente está esperando você decidir sobre o assunto anterior.
@@ -286,8 +319,41 @@ export default function SimulatorChat() {
             </div>
           )}
 
+          {/* pesquisa de satisfação: teclado de 0 a 10 */}
+          {awaitingNps && (
+            <div className="px-5 py-3 bg-violet-50 border-t border-violet-200">
+              <p className="text-xs text-violet-900 mb-2 font-medium flex items-center gap-1.5">
+                <Star className="w-3.5 h-3.5" />
+                Atendimento encerrado. De 0 a 10, quanto você recomendaria a Claro?
+              </p>
+              <div className="flex gap-1 flex-wrap">
+                {Array.from({ length: 11 }, (_, nota) => (
+                  <button
+                    key={nota}
+                    onClick={() => send(String(nota))}
+                    className={cn(
+                      'w-9 h-9 rounded-lg text-sm font-semibold border transition-colors',
+                      nota <= 6 ? 'border-red-200 text-red-700 hover:bg-red-100'
+                        : nota <= 8 ? 'border-amber-200 text-amber-700 hover:bg-amber-100'
+                          : 'border-emerald-200 text-emerald-700 hover:bg-emerald-100',
+                    )}
+                  >
+                    {nota}
+                  </button>
+                ))}
+                <button
+                  onClick={() => send('não quero responder')}
+                  className="px-3 h-9 rounded-lg text-xs font-medium text-gray-600 border border-gray-300 hover:bg-gray-100 transition-colors"
+                >
+                  prefiro não responder
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* sugestões só antes da primeira mensagem do cliente */}
-          {!booting && !awaiting && !bubbles.some((b) => b.author === 'customer') && (
+          {!booting && !awaiting && !awaitingNps
+            && !bubbles.some((b) => b.author === 'customer') && (
             <div className="px-5 py-3 border-t border-gray-100 bg-white">
               <p className="text-xs text-gray-400 mb-2">Sugestões para começar</p>
               <div className="flex flex-wrap gap-2">
@@ -318,18 +384,30 @@ export default function SimulatorChat() {
                 </button>
               </p>
             )}
+            {withAgent && (
+              <p className="mb-2 flex items-center gap-1.5 text-xs text-amber-700">
+                <UserPlus className="w-3.5 h-3.5" />
+                Quem responde agora é o atendente. O assistente parou de falar nesta conversa.
+              </p>
+            )}
+            {closed && (
+              <p className="mb-2 flex items-center gap-1.5 text-xs text-gray-500">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                Atendimento encerrado. Escrever de novo abre uma conversa nova.
+              </p>
+            )}
             <div className="flex items-center gap-3">
               <input
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') void send(draft); }}
                 placeholder={`Escreva como ${customer?.name.split(' ')[0] ?? 'o cliente'} no ${current.label}…`}
-                disabled={sending || booting}
+                disabled={booting}
                 className="flex-1 px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#E10019] focus:border-transparent disabled:opacity-60"
               />
               <button
                 onClick={() => void send(draft)}
-                disabled={sending || booting || !draft.trim()}
+                disabled={booting || !draft.trim()}
                 aria-label="Enviar mensagem"
                 className="p-3 bg-[#E10019] text-white rounded-lg hover:bg-[#C20015] transition-colors disabled:opacity-40"
               >

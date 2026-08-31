@@ -6,7 +6,7 @@
  * dentro dos componentes.
  */
 import type {
-  Channel, ConversationDetail, ConversationListItem, CustomerContext,
+  Channel, ClosedConversation, ConversationDetail, ConversationListItem, CustomerContext,
   CustomerSummary, Dashboard, EligibleCustomer, Greeting, Health, HubReply,
   Message, OutreachResult, PersonaPreview, StudioConfig, WhatsAppStatus,
 } from './types';
@@ -95,6 +95,14 @@ export const api = {
     return request(`/api/v1/conversations/${id}/handover`, {
       method: 'POST',
       body: JSON.stringify({ reason, agent }),
+    });
+  },
+
+  /** Encerra o atendimento e dispara a pesquisa de satisfação. */
+  closeConversation(id: string, agent = 'Console', survey = true): Promise<ClosedConversation> {
+    return request(`/api/v1/conversations/${id}/close`, {
+      method: 'POST',
+      body: JSON.stringify({ agent, survey }),
     });
   },
 

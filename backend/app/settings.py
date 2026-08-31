@@ -51,6 +51,20 @@ class LLMSettings:
 
 
 @dataclass(frozen=True)
+class ConversationSettings:
+    """Ritmo da conversa.
+
+    `reply_delay_seconds` é a janela de silêncio antes de o assistente
+    responder: cada mensagem nova do cliente reinicia a contagem, e o lote
+    inteiro é processado de uma vez. Trinta segundos é o padrão de produção —
+    para gravar a demonstração, baixe para algo entre 5 e 8, senão o vídeo vira
+    meia hora de gente esperando.
+    """
+    reply_delay_seconds: float = float(os.getenv("BOT_REPLY_DELAY_SECONDS", "30"))
+    nps_on_close: bool = os.getenv("NPS_ON_CLOSE", "true").lower() == "true"
+
+
+@dataclass(frozen=True)
 class WhatsAppSettings:
     """Integração com a WhatsApp Business Cloud API (Meta Graph API).
 
@@ -111,6 +125,7 @@ class Settings:
 
     llm: LLMSettings = field(default_factory=LLMSettings)
     whatsapp: WhatsAppSettings = field(default_factory=WhatsAppSettings)
+    conversation: ConversationSettings = field(default_factory=ConversationSettings)
 
     cors_origins: tuple[str, ...] = tuple(
         o.strip() for o in os.getenv(

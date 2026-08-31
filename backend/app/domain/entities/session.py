@@ -27,6 +27,12 @@ class Session(BaseModel):
         default=None,
         description="Descrição da migração que motivou a pergunta de contexto.",
     )
+    awaiting_nps: bool = Field(
+        default=False,
+        description="A pesquisa de satisfação foi enviada e o cliente ainda não "
+                    "respondeu. Enquanto isso, a próxima mensagem dele é lida "
+                    "como nota, e não como novo pedido de atendimento.",
+    )
 
     def register_channel(self, channel: Channel) -> bool:
         """Registra o canal e informa se houve troca em relação ao anterior."""
@@ -57,3 +63,11 @@ class Session(BaseModel):
     def clear_context_confirmation(self) -> None:
         self.awaiting_context_confirmation = False
         self.pending_channel_switch = None
+
+    def open_survey(self) -> None:
+        self.awaiting_nps = True
+        self.awaiting_context_confirmation = False
+        self.pending_channel_switch = None
+
+    def close_survey(self) -> None:
+        self.awaiting_nps = False

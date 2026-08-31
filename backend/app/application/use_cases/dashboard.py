@@ -51,7 +51,8 @@ class GetDashboardMetricsUseCase:
             conversations=KPI(value=total, trend=12.5),
             resolution_rate=KPI(value=self._pct(resolved, total), trend=4.2, unit="%"),
             handover_rate=KPI(value=self._pct(handed_over, total), trend=-3.1, unit="%"),
-            nps=KPI(value=self._nps(scoped), trend=2.8),
+            nps=KPI(value=self._nps(scoped), trend=2.8,
+                    unit=f"{self._nps_answers(scoped)} resposta(s)"),
             week=self._week(scoped),
             channels=self._channels(scoped),
             area_counts=self._area_counts(every),
@@ -68,13 +69,23 @@ class GetDashboardMetricsUseCase:
 
     @staticmethod
     def _nps(items: list[Conversation]) -> float:
-        """Proxy de NPS: cada transferência e cada caso de retenção pesam contra.
-        Não é um NPS real — é um indicador derivado, e a interface rotula assim."""
-        if not items:
+        """NPS pela fórmula real: % de promotores menos % de detratores.
+
+        Só entram conversas com nota respondida. Enquanto ninguém respondeu, o
+        indicador é zero e a interface diz que ainda não há respostas — inventar
+        um número aqui seria exatamente o tipo de métrica que não se pode
+        defender numa reunião.
+        """
+        notas = [c.nps for c in items if c.nps and c.nps.answered]
+        if not notas:
             return 0.0
-        penalty = sum(3 for c in items if c.handover.requested)
-        penalty += sum(4 for c in items if c.area is Area.retencao)
-        return round(max(0.0, 100 - penalty / len(items) * 10), 1)
+        promotores = sum(1 for n in notas if n.category == "promotor")
+        detratores = sum(1 for n in notas if n.category == "detrator")
+        return round((promotores - detratores) / len(notas) * 100, 1)
+
+    @staticmethod
+    def _nps_answers(items: list[Conversation]) -> int:
+        return sum(1 for c in items if c.nps and c.nps.answered)
 
     @staticmethod
     def _week(items: list[Conversation]) -> list[dict]:

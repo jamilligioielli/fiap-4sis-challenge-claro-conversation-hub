@@ -14,6 +14,7 @@ vi.mock('../../api/client', () => ({
     getConversation: vi.fn(),
     getCustomerContext: vi.fn(),
     listCustomerConversations: vi.fn(),
+    getHealth: vi.fn(),
   },
   ApiError: class ApiError extends Error {
     constructor(public status: number, message: string) { super(message); }
@@ -36,6 +37,7 @@ beforeEach(() => {
   mocked.startConversation.mockResolvedValue(fixtures.greeting);
   mocked.sendAsCustomer.mockResolvedValue(fixtures.hubReply);
   mocked.getConversation.mockResolvedValue(fixtures.conversationDetail);
+  mocked.getHealth.mockResolvedValue(fixtures.health);
 });
 
 describe('abertura da conversa', () => {
@@ -163,6 +165,152 @@ describe('envio de mensagem', () => {
     await user.type(screen.getByRole('textbox'), 'oi{Enter}');
 
     expect(await screen.findByText('v3')).toBeInTheDocument();
+  });
+});
+
+describe('silêncio depois do transbordo', () => {
+  it('não desenha balão vazio quando o assistente cala', async () => {
+    const user = userEvent.setup();
+    mocked.sendAsCustomer.mockResolvedValue(fixtures.silentReply);
+    renderChat();
+    await screen.findByText(/Sou a Clara/);
+
+    await user.type(screen.getByRole('textbox'), 'alô?{Enter}');
+
+    // A nota de sistema explica; um balão vazio só confundiria.
+    expect(await screen.findAllByText(/entregue ao atendente/i)).not.toHaveLength(0);
+    expect(screen.getByText('alô?')).toBeInTheDocument();
+    expect(screen.queryByText('Não Identificada')).not.toBeInTheDocument();
+  });
+
+  it('avisa que quem responde agora é a pessoa', async () => {
+    const user = userEvent.setup();
+    mocked.sendAsCustomer.mockResolvedValue(fixtures.silentReply);
+    renderChat();
+    await screen.findByText(/Sou a Clara/);
+
+    await user.type(screen.getByRole('textbox'), 'alô?{Enter}');
+
+    expect(await screen.findByText(/assistente parou de falar/i)).toBeInTheDocument();
+  });
+});
+
+describe('pesquisa de satisfação', () => {
+  beforeEach(() => mocked.sendAsCustomer.mockResolvedValue(fixtures.npsReply));
+
+  it('abre o teclado de 0 a 10 quando o atendimento encerra', async () => {
+    const user = userEvent.setup();
+    renderChat();
+    await screen.findByText(/Sou a Clara/);
+
+    await user.type(screen.getByRole('textbox'), 'obrigada, era só isso{Enter}');
+
+    expect(await screen.findByRole('button', { name: '10' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '0' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /prefiro não responder/ })).toBeInTheDocument();
+  });
+
+  it('envia a nota escolhida como mensagem do cliente', async () => {
+    const user = userEvent.setup();
+    renderChat();
+    await screen.findByText(/Sou a Clara/);
+    await user.type(screen.getByRole('textbox'), 'tchau{Enter}');
+
+    await user.click(await screen.findByRole('button', { name: '9' }));
+
+    expect(mocked.sendAsCustomer).toHaveBeenLastCalledWith('whatsapp', {
+      text: '9', customer_id: 'cus1',
+    });
+  });
+
+  it('permite recusar a pesquisa sem digitar nada', async () => {
+    const user = userEvent.setup();
+    renderChat();
+    await screen.findByText(/Sou a Clara/);
+    await user.type(screen.getByRole('textbox'), 'tchau{Enter}');
+
+    await user.click(await screen.findByRole('button', { name: /prefiro não responder/ }));
+
+    expect(mocked.sendAsCustomer).toHaveBeenLastCalledWith('whatsapp', {
+      text: 'não quero responder', customer_id: 'cus1',
+    });
+  });
+
+  it('esconde as sugestões de abertura durante a pesquisa', async () => {
+    const user = userEvent.setup();
+    renderChat();
+    await screen.findByText(/Sou a Clara/);
+
+    await user.type(screen.getByRole('textbox'), 'tchau{Enter}');
+
+    await screen.findByRole('button', { name: '10' });
+    expect(screen.queryByText('Sugestões para começar')).not.toBeInTheDocument();
+  });
+});
+
+describe('agrupamento de mensagens', () => {
+  it('não mostra resposta nenhuma para a mensagem absorvida', async () => {
+    const user = userEvent.setup();
+    mocked.sendAsCustomer.mockResolvedValue(fixtures.supersededReply);
+    renderChat();
+    await screen.findByText(/Sou a Clara/);
+
+    await user.type(screen.getByRole('textbox'), 'oi, tudo bem?{Enter}');
+
+    // A fala do cliente fica; a do assistente ainda não existe.
+    expect(await screen.findByText('oi, tudo bem?')).toBeInTheDocument();
+    expect(screen.queryByText(/Posso te mostrar o Flex 50GB/)).not.toBeInTheDocument();
+  });
+
+  it('deixa o cliente continuar escrevendo durante a espera', async () => {
+    /* Regressão: com o campo desabilitado enquanto o hub espera, era impossível
+       mandar a segunda mensagem — e a janela de silêncio perdia o sentido. */
+    const user = userEvent.setup();
+    const pendentes: Array<(v: unknown) => void> = [];
+    mocked.sendAsCustomer.mockImplementation(
+      () => new Promise((r) => pendentes.push(r)) as never);
+    renderChat();
+    await screen.findByText(/Sou a Clara/);
+    const campo = screen.getByRole('textbox');
+
+    await user.type(campo, 'oi, tudo bem?{Enter}');
+    expect(campo).toBeEnabled();
+    await user.type(campo, 'queria ver meu plano{Enter}');
+
+    await waitFor(() => expect(mocked.sendAsCustomer).toHaveBeenCalledTimes(2));
+    expect(mocked.sendAsCustomer).toHaveBeenNthCalledWith(1, 'whatsapp', {
+      text: 'oi, tudo bem?', customer_id: 'cus1',
+    });
+    expect(mocked.sendAsCustomer).toHaveBeenNthCalledWith(2, 'whatsapp', {
+      text: 'queria ver meu plano', customer_id: 'cus1',
+    });
+    pendentes.forEach((r) => r(fixtures.supersededReply));
+  });
+
+  it('deixa trocar de canal durante a espera', async () => {
+    const user = userEvent.setup();
+    mocked.sendAsCustomer.mockReturnValue(new Promise(() => {}) as never);
+    renderChat();
+    await screen.findByText(/Sou a Clara/);
+
+    await user.type(screen.getByRole('textbox'), 'oi{Enter}');
+    await user.click(screen.getByRole('button', { name: /App Claro/ }));
+
+    expect(await screen.findByText(/Você abriu o App Claro/)).toBeInTheDocument();
+  });
+
+  it('explica a espera em vez de parecer travamento', async () => {
+    const user = userEvent.setup();
+    let liberar: (v: unknown) => void = () => {};
+    mocked.sendAsCustomer.mockReturnValue(new Promise((r) => { liberar = r; }) as never);
+    renderChat();
+    await screen.findByText(/Sou a Clara/);
+
+    await user.type(screen.getByRole('textbox'), 'oi{Enter}');
+
+    expect(await screen.findByText(/aguardando você terminar de escrever \(até 30s\)/))
+      .toBeInTheDocument();
+    liberar(fixtures.hubReply);
   });
 });
 

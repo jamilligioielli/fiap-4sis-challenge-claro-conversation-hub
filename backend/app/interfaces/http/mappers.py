@@ -9,8 +9,13 @@ from ...application.use_cases.console import relative_label
 from ...domain.entities.conversation import Conversation
 from ...domain.entities.customer import Customer
 from ...domain.entities.message import Message
+from ...domain.services.attendance_queue import waiting_seconds
+from ...domain.services.conversation_insights_service import (HistoryStatus, history_status,
+                                                              history_type)
+from ...domain.value_objects.clock import utcnow
 from ...domain.outreach.eligibility import EligibleCustomer
 from ...domain.value_objects.intent import Intent
+from .schemas.conversation_history_response import ConversationHistoryItem
 from .schemas.conversation_list_item import ConversationListItem
 from .schemas.customer_context_response import CustomerContextResponse
 from .schemas.customer_summary_response import CustomerSummaryResponse
@@ -55,6 +60,39 @@ def conversation_to_list_item(conversation: Conversation,
         nps_score=conversation.nps.score if conversation.nps else None,
         nps_category=conversation.nps.category if conversation.nps else None,
         closed_by=conversation.nps.closed_by if conversation.nps else None,
+        handover_requested_at=conversation.handover.requested_at,
+        assigned_agent=conversation.handover.assigned_agent,
+        waiting_seconds=waiting_seconds(conversation, utcnow()),
+        attended_by=conversation.attended_by,
+        sentiment=conversation.sentiment,
+        sentiment_score=conversation.sentiment_score,
+    )
+
+
+def conversation_to_history_item(conversation: Conversation,
+                                 message_count: int) -> ConversationHistoryItem:
+    status = history_status(conversation)
+    type_key, type_label = history_type(conversation)
+    nps = conversation.nps
+    return ConversationHistoryItem(
+        id=conversation.id,
+        date=conversation.started_at.date().isoformat(),
+        started_at=conversation.started_at,
+        closed_at=conversation.closed_at,
+        type=type_key,
+        type_label=type_label,
+        intent=conversation.intent.name if conversation.intent else None,
+        area=conversation.area,
+        status=status.value,
+        status_label=status.label,
+        resolved=status is HistoryStatus.resolved,
+        nps_score=nps.score if nps else None,
+        nps_category=nps.category if nps else None,
+        attended_by=conversation.attended_by,
+        channels_used=conversation.channels_used,
+        message_count=message_count,
+        sentiment=conversation.sentiment,
+        current=conversation.is_current and conversation.closed_at is None,
     )
 
 
@@ -64,6 +102,7 @@ def message_to_dto(message: Message) -> MessageResponse:
         channel=message.channel, timestamp=message.timestamp,
         intent=intent_to_dto(message.intent),
         source=message.source.value if message.source else None,
+        sentiment=message.sentiment,
     )
 
 

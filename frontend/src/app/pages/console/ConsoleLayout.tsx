@@ -1,7 +1,7 @@
 import { Link, Outlet, useLocation } from 'react-router';
 import {
   LayoutDashboard, Inbox, MessageSquare, Palette, Megaphone, Cpu, Database,
-  ArrowLeft,
+  ArrowLeft, Headset,
 } from 'lucide-react';
 
 import { useHealth } from '../../api/hooks';
@@ -17,7 +17,8 @@ import { cn } from '../../components/ui/utils';
 
 const NAV = [
   { path: '/console', label: 'Dashboard', icon: LayoutDashboard, exact: true },
-  { path: '/console/inbox', label: 'Inbox Omnichannel', icon: Inbox },
+  { path: '/console/inbox', label: 'Inbox Omnichannel', icon: Inbox, exact: true },
+  { path: '/console/inbox-atendente', label: 'Inbox do Atendente', icon: Headset },
   { path: '/console/contato-ativo', label: 'Contato Ativo', icon: Megaphone },
   { path: '/console/design-studio', label: 'Design Studio', icon: Palette },
 ];
@@ -25,6 +26,7 @@ const NAV = [
 const TITLES: Record<string, string> = {
   '/console': 'Dashboard',
   '/console/inbox': 'Inbox Omnichannel',
+  '/console/inbox-atendente': 'Inbox do Atendente',
   '/console/contato-ativo': 'Contato Ativo',
   '/console/design-studio': 'Conversation Design Studio',
 };
@@ -43,7 +45,7 @@ export default function ConsoleLayout() {
 
   return (
     <div className="flex h-screen bg-gray-50">
-      <aside className="w-64 bg-white border-r border-gray-200 flex flex-col shrink-0">
+      <aside className="hidden md:flex w-64 bg-white border-r border-gray-200 flex-col shrink-0">
         <div className="h-16 flex items-center px-6 border-b border-gray-200">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 bg-[#E10019] rounded-lg flex items-center justify-center">
@@ -56,7 +58,7 @@ export default function ConsoleLayout() {
           </div>
         </div>
 
-        <nav className="flex-1 px-3 py-4">
+        <nav aria-label="Menu principal" className="flex-1 px-3 py-4">
           <div className="space-y-1">
             {NAV.map((item) => {
               const active = item.exact
@@ -133,14 +135,14 @@ export default function ConsoleLayout() {
       </aside>
 
       <div className="flex-1 flex flex-col overflow-hidden">
-        <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6 shrink-0">
+        <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-4 md:px-6 shrink-0">
           <div>
             <h1 className="text-lg font-semibold text-gray-900">{title}</h1>
             <p className="text-xs text-gray-500">Claro Conversation Hub</p>
           </div>
 
           <div className="flex items-center gap-4">
-            <div className="text-right">
+            <div className="text-right hidden sm:block">
               <div className="text-sm font-medium text-gray-900">Admin CX</div>
               <div className="text-xs text-gray-500">admin@claro.com.br</div>
             </div>
@@ -149,6 +151,26 @@ export default function ConsoleLayout() {
             </div>
           </div>
         </header>
+
+        {/* Em telas estreitas a barra lateral sai e a navegação vira uma faixa
+            rolável sob o cabeçalho — o console continua usável no celular. */}
+        <nav aria-label="Navegação do console"
+             className="md:hidden flex gap-1 overflow-x-auto bg-white border-b border-gray-200 px-2 py-1.5 shrink-0">
+          {NAV.map((item) => {
+            const active = item.exact
+              ? location.pathname === item.path
+              : location.pathname.startsWith(item.path);
+            const Icon = item.icon;
+            return (
+              <Link key={item.path} to={item.path}
+                    className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap',
+                      active ? 'bg-red-50 text-[#E10019]' : 'text-gray-600 hover:bg-gray-100')}>
+                <Icon className="w-4 h-4" aria-hidden />
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
 
         <main className="flex-1 overflow-auto">
           <Outlet />

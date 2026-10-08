@@ -1,14 +1,25 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router';
 import {
-  Globe, MessageCircle, Smartphone, Phone, ArrowRight, User, Sparkles, Send,
-  UserPlus, ChevronRight, Loader2, Bot, Headset, Info, CheckCircle2, Star,
+  Globe, MessageCircle, Smartphone, Phone, ArrowRight, User, Send,
+  UserPlus, ChevronRight, Loader2, Bot, Headset, Info, CheckCircle2, Star, CalendarDays,
 } from 'lucide-react';
 
 import { api } from '../../api/client';
-import { useConversation } from '../../api/hooks';
-import type { Channel, ConversationDetail, Message } from '../../api/types';
+import {
+  useConversation, useCustomerContext, useCustomerConversationHistory,
+} from '../../api/hooks';
+import type {
+  Channel, ConversationDetail, ConversationHistoryItem, Message,
+} from '../../api/types';
 import { AsyncBoundary } from '../../components/AsyncBoundary';
+import CustomerSnapshot from '../../components/context/CustomerSnapshot';
+import ConversationHistoryModal from '../../components/history/ConversationHistoryModal';
+import ConversationTimeline from '../../components/history/ConversationTimeline';
+import ConversationTimelineInsights from '../../components/history/ConversationTimelineInsights';
+import MessageSentimentBadge from '../../components/sentiment/MessageSentimentBadge';
+import SentimentIndicator from '../../components/sentiment/SentimentIndicator';
+import { CURRENT_AGENT } from '../../lib/agent';
 import { cn } from '../../components/ui/utils';
 
 /**
@@ -45,7 +56,17 @@ function ConversationView({ detail, reload }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [tab, setTab] = useState<'contexto' | 'historico'>('contexto');
+  const [historyItem, setHistoryItem] = useState<ConversationHistoryItem | null>(null);
+  const customer = useCustomerContext(detail.customer_id);
+  // Recarrega o histórico quando a situação da conversa muda (transferida,
+  // encerrada), não a cada mensagem: cada leitura entra na trilha de auditoria.
+  const history = useCustomerConversationHistory(detail.customer_id, detail.status);
+
   const startedAt = new Date(detail.started_at);
+  const assignedAgent = detail.ai.handover.assigned_agent;
+  // Transferida pelo assistente e ainda sem dono: está na fila esperando alguém.
+  const waitingForAgent = detail.status === 'transferred' && assignedAgent === null;
   const transition = detail.channels_used.length > 1;
 
   async function sendReply() {
@@ -68,7 +89,7 @@ function ConversationView({ detail, reload }: {
   async function close() {
     setBusy(true); setError(null);
     try {
-      const resultado = await api.closeConversation(detail.id, 'Admin CX');
+      const resultado = await api.closeConversation(detail.id, CURRENT_AGENT);
       setClosed(resultado.survey_message);
       reload();
     } catch (err) {
@@ -81,7 +102,7 @@ function ConversationView({ detail, reload }: {
   async function handover() {
     setBusy(true); setError(null);
     try {
-      await api.requestHandover(detail.id, 'Assumido pelo atendente no console', 'Admin CX');
+      await api.requestHandover(detail.id, 'Assumido pelo atendente no console', CURRENT_AGENT);
       reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao transferir');
@@ -91,18 +112,18 @@ function ConversationView({ detail, reload }: {
   }
 
   return (
-    <div className="h-full flex">
+    <div className="h-full flex flex-col lg:flex-row overflow-y-auto lg:overflow-hidden">
       {/* ------------------------------------------------ transcrição */}
-      <div className="flex-1 flex flex-col bg-white min-w-0">
+      <div className="flex-1 flex flex-col bg-white min-w-0 min-h-[70vh] lg:min-h-0">
         <div className="p-4 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-white">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded-full bg-[#E10019] flex items-center justify-center text-white font-semibold">
                 {initials(detail.customer_name)}
               </div>
               <div>
                 <h3 className="font-semibold text-gray-900">{detail.customer_name}</h3>
-                <div className="flex items-center gap-2 text-sm text-gray-600">
+                <div className="flex flex-wrap items-center gap-x-2 text-sm text-gray-600">
                   <span className="flex items-center gap-1">
                     <span className={cn('w-2 h-2 rounded-full',
                       detail.status === 'transferred' ? 'bg-blue-500' : 'bg-green-500')} />
@@ -179,11 +200,15 @@ function ConversationView({ detail, reload }: {
           <div className="flex items-center gap-3 mt-3 flex-wrap">
             <button
               onClick={handover}
-              disabled={busy || detail.status === 'transferred'}
-              className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm font-medium flex items-center gap-2 disabled:opacity-40"
+              disabled={busy || assignedAgent !== null || detail.status === 'pending'}
+              className={cn('px-4 py-2 rounded-lg transition-colors text-sm font-medium flex items-center gap-2 disabled:opacity-40',
+                waitingForAgent ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200')}
             >
               <UserPlus className="w-4 h-4" />
-              {detail.status === 'transferred' ? 'Já transferida' : 'Assumir como humano'}
+              {assignedAgent
+                ? (assignedAgent === CURRENT_AGENT ? 'Com você' : `Com ${assignedAgent}`)
+                : waitingForAgent ? 'Assumir atendimento' : 'Assumir como humano'}
             </button>
             <button
               onClick={close}
@@ -214,36 +239,60 @@ function ConversationView({ detail, reload }: {
         </div>
       </div>
 
-      {/* -------------------------------------------------- painel de IA */}
-      <aside className="w-96 bg-gradient-to-br from-gray-50 to-white border-l border-gray-200 p-6 overflow-y-auto shrink-0">
-        <div className="space-y-6">
-          {detail.ai.intent && (
-            <section className="bg-white rounded-xl border border-gray-200 p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <Sparkles className="w-5 h-5 text-[#E10019]" />
-                <h4 className="font-semibold text-gray-900">Intenção Detectada</h4>
-              </div>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm text-gray-600">{detail.ai.intent.name}</span>
-                <span className={cn('text-sm font-medium',
-                  detail.ai.intent.confidence >= 0.75 ? 'text-green-600'
-                    : detail.ai.intent.confidence >= 0.5 ? 'text-amber-600' : 'text-[#E10019]')}>
-                  {Math.round(detail.ai.intent.confidence * 100)}% confiança
+      {/* ------------------------------------- painel de contexto do atendente */}
+      <aside className="w-full lg:w-[400px] bg-gradient-to-br from-gray-50 to-white border-t lg:border-t-0 lg:border-l border-gray-200 overflow-y-auto shrink-0">
+        <div role="tablist" aria-label="Painel do atendente"
+             className="sticky top-0 z-10 flex bg-white/95 backdrop-blur border-b border-gray-200 px-4">
+          {([['contexto', 'Contexto'], ['historico', 'Histórico']] as const).map(([key, label]) => (
+            <button key={key} role="tab" type="button" aria-selected={tab === key}
+                    onClick={() => setTab(key)}
+                    className={cn('px-3 py-3 text-sm font-medium border-b-2 -mb-px transition-colors',
+                      tab === key ? 'border-[#E10019] text-[#E10019]'
+                                  : 'border-transparent text-gray-500 hover:text-gray-800')}>
+              {key === 'historico' && <CalendarDays className="w-4 h-4 inline mr-1 -mt-0.5" aria-hidden />}
+              {label}
+              {key === 'historico' && history.data && history.data.items.length > 0 && (
+                <span className="ml-1.5 text-[11px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-600">
+                  {history.data.items.length}
                 </span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-2">
-                <div
-                  className={cn('h-2 rounded-full',
-                    detail.ai.intent.confidence >= 0.75 ? 'bg-green-500'
-                      : detail.ai.intent.confidence >= 0.5 ? 'bg-amber-500' : 'bg-[#E10019]')}
-                  style={{ width: `${detail.ai.intent.confidence * 100}%` }}
-                />
-              </div>
-              <p className="mt-2 text-xs text-gray-400">
-                motor: {detail.ai.intent.engine.startsWith('llm') ? 'LLM' : 'regras'}
+              )}
+            </button>
+          ))}
+        </div>
+
+        {tab === 'historico' ? (
+          <div className="p-5 space-y-4" role="tabpanel" aria-label="Histórico">
+            {history.loading && !history.data && (
+              <p className="text-sm text-gray-500 flex items-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin" /> Carregando o histórico…
               </p>
-            </section>
-          )}
+            )}
+            {history.error && !history.data && (
+              <p className="text-sm text-gray-500">Histórico indisponível: {history.error}</p>
+            )}
+            {history.data && (
+              <>
+                <ConversationTimeline items={history.data.items} currentId={detail.id}
+                                      onSelect={setHistoryItem} />
+                <ConversationTimelineInsights insights={history.data.insights}
+                                              months={history.data.months} />
+              </>
+            )}
+          </div>
+        ) : (
+        <div className="p-5 space-y-5" role="tabpanel" aria-label="Contexto">
+          {/* Melhoria 4 — o humor vem antes de tudo: muda a forma de abrir a conversa. */}
+          <SentimentIndicator sentiment={detail.sentiment} score={detail.sentiment_score} />
+
+          {/* Melhoria 3 — contexto em cartões escaneáveis. */}
+          <CustomerSnapshot
+            customer={customer.data}
+            customerError={customer.error}
+            intent={detail.ai.intent}
+            history={history.data}
+            currentConversationId={detail.id}
+            onOpenHistory={() => setTab('historico')}
+          />
 
           <section className="bg-white rounded-xl border border-gray-200 p-4">
             <h4 className="font-semibold text-gray-900 mb-3">Resumo Automático</h4>
@@ -318,7 +367,10 @@ function ConversationView({ detail, reload }: {
             )}
           </section>
         </div>
+        )}
       </aside>
+
+      <ConversationHistoryModal item={historyItem} onClose={() => setHistoryItem(null)} />
     </div>
   );
 }
@@ -341,11 +393,16 @@ function MessageBubble({ message }: { message: Message }) {
 
   return (
     <div className={cn('flex', isCustomer ? 'justify-end' : 'justify-start')}>
-      <div className={cn('max-w-lg rounded-2xl px-4 py-3 shadow-sm',
+      <div className={cn('max-w-lg rounded-2xl px-4 py-3 shadow-sm relative',
         isCustomer ? 'bg-[#E10019] text-white'
           : message.author === 'agent' ? 'bg-emerald-600 text-white'
           : 'bg-white text-gray-900 border border-gray-200')}>
         <p className="text-sm whitespace-pre-wrap">{message.text}</p>
+        {isCustomer && message.sentiment && (
+          <span className="absolute -left-2.5 -bottom-2">
+            <MessageSentimentBadge sentiment={message.sentiment} />
+          </span>
+        )}
         <div className={cn('flex items-center gap-1.5 mt-1.5 text-xs',
                             isCustomer || message.author === 'agent'
                               ? 'text-white/70' : 'text-gray-400')}>

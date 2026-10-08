@@ -15,10 +15,10 @@ from datetime import timedelta
 
 from ...domain.entities.conversation import Conversation
 from ...domain.ports.conversation_repository import ConversationRepository
+from ...domain.services.nps_analytics_service import NpsAnalyticsService, NpsComparison
 from ...domain.value_objects.area import Area
 from ...domain.value_objects.channel import Channel
 from ...domain.value_objects.clock import utcnow
-from ...domain.value_objects.conversation_status import ConversationStatus
 from ..dto.dashboard_metrics import DashboardMetrics
 from ..dto.kpi import KPI
 
@@ -42,8 +42,11 @@ class GetDashboardMetricsUseCase:
 
         total = len(scoped)
         handed_over = sum(1 for c in scoped if c.handover.requested)
+        # Resolução digital: atendimento encerrado sem passar por humano. (Até a
+        # Sprint 3 a regra excluía justamente as encerradas — `pending` é o
+        # estado de conversa encerrada — e contava as ainda abertas.)
         resolved = sum(1 for c in scoped
-                       if not c.handover.requested and c.status is not ConversationStatus.pending)
+                       if c.closed_at is not None and c.attended_by == "bot")
 
         return DashboardMetrics(
             area=area or "Todos",
@@ -175,3 +178,21 @@ class GetDashboardMetricsUseCase:
             })
 
         return alerts
+
+
+class GetNpsComparisonUseCase:
+    """Comparativo de NPS entre atendimento automatizado e humano.
+
+    Usa o mesmo recorte por área do painel, para que trocar o filtro mova os
+    dois blocos juntos.
+    """
+
+    def __init__(self, conversations: ConversationRepository,
+                 analytics: NpsAnalyticsService | None = None) -> None:
+        self._conversations = conversations
+        self._analytics = analytics or NpsAnalyticsService()
+
+    async def execute(self, area: str | None = None) -> NpsComparison:
+        scope = None if area in (None, "", "Todos") else area
+        conversations = await self._conversations.list(area=scope)
+        return self._analytics.calculate_bot_vs_agent_nps(conversations)

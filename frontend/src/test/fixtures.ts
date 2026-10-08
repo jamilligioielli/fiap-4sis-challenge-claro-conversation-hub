@@ -1,6 +1,7 @@
 import type {
-  ConversationDetail, ConversationListItem, CustomerContext, CustomerSummary,
-  Dashboard, EligibleCustomer, Greeting, Health, HubReply, Intent, StudioConfig,
+  ConversationDetail, ConversationHistory, ConversationListItem, CustomerContext, CustomerSummary,
+  Dashboard, EligibleCustomer, Greeting, Health, HubReply, Intent, NpsComparison, NpsGroup,
+  StudioConfig,
 } from '../app/api/types';
 
 /**
@@ -146,6 +147,12 @@ export const conversationItem: ConversationListItem = {
   nps_score: null,
   nps_category: null,
   closed_by: null,
+  handover_requested_at: null,
+  assigned_agent: null,
+  waiting_seconds: null,
+  attended_by: 'bot',
+  sentiment: null,
+  sentiment_score: null,
 };
 
 export const conversationDetail: ConversationDetail = {
@@ -157,11 +164,14 @@ export const conversationDetail: ConversationDetail = {
   priority: 'medium',
   channels_used: ['whatsapp'],
   started_at: '2026-08-30T19:58:00Z',
+  sentiment: 'neutral',
+  sentiment_score: 0.5,
+  attended_by: 'bot',
   messages: [
     { id: 'm1', author: 'bot', text: 'Oi, Maria! 👋', channel: 'whatsapp',
-      timestamp: '19:58', intent: null, source: 'template' },
+      timestamp: '19:58', intent: null, source: 'template', sentiment: null },
     { id: 'm2', author: 'customer', text: 'Quero mais internet', channel: 'whatsapp',
-      timestamp: '19:59', intent, source: null },
+      timestamp: '19:59', intent, source: null, sentiment: 'neutral' },
   ],
   ai: {
     intent,
@@ -298,4 +308,80 @@ export const studioConfig: StudioConfig = {
   channels: [],
   version: 3,
   updated_at: '2026-08-30T19:00:00Z',
+};
+
+// ------------------------------------------------ Sprint 4 — NPS comparativo
+const emptyGroup: NpsGroup = {
+  total: 0, average_score: null, nps: null, promoters: 0, passives: 0, detractors: 0,
+  percentages: { promoters: 0, passives: 0, detractors: 0 }, surveys_sent: 0, unanswered: 0,
+};
+
+export const npsComparison: NpsComparison = {
+  area: 'Todos',
+  bot: {
+    total: 10, average_score: 6.8, nps: -10, promoters: 3, passives: 3, detractors: 4,
+    percentages: { promoters: 30, passives: 30, detractors: 40 }, surveys_sent: 12,
+    unanswered: 2,
+  },
+  agent: {
+    total: 5, average_score: 8.6, nps: 60, promoters: 3, passives: 2, detractors: 0,
+    percentages: { promoters: 60, passives: 40, detractors: 0 }, surveys_sent: 5,
+    unanswered: 0,
+  },
+  overall: {
+    total: 15, average_score: 7.4, nps: 13.3, promoters: 6, passives: 5, detractors: 4,
+    percentages: { promoters: 40, passives: 33.3, detractors: 26.7 }, surveys_sent: 17,
+    unanswered: 2,
+  },
+  comparison: { score_difference: 1.8, nps_difference: 70, agent_better: true },
+};
+
+export const emptyNpsComparison: NpsComparison = {
+  area: 'Todos', bot: emptyGroup, agent: emptyGroup, overall: emptyGroup,
+  comparison: { score_difference: null, nps_difference: null, agent_better: null },
+};
+
+// ------------------------------------------------- Sprint 4 — histórico
+export const conversationHistory: ConversationHistory = {
+  customer_id: 'cus1',
+  months: 6,
+  items: [
+    {
+      id: 'conv1', date: '2026-08-30', started_at: '2026-08-30T19:58:00Z', closed_at: null,
+      type: 'vendas', type_label: 'Vendas', intent: 'Alteração de Plano', area: 'Vendas',
+      status: 'open', status_label: 'Em andamento', resolved: false, nps_score: null,
+      nps_category: null, attended_by: 'bot', channels_used: ['whatsapp'], message_count: 2,
+      sentiment: 'neutral', current: true,
+    },
+    {
+      id: 'conv0', date: '2026-08-12', started_at: '2026-08-12T10:00:00Z',
+      closed_at: '2026-08-12T10:20:00Z', type: 'suporte', type_label: 'Suporte',
+      intent: 'Suporte Técnico', area: 'Suporte', status: 'resolved',
+      status_label: 'Resolvida', resolved: true, nps_score: 9, nps_category: 'promotor',
+      attended_by: 'agent', channels_used: ['app'], message_count: 8, sentiment: 'positive',
+      current: false,
+    },
+    {
+      id: 'conv-1', date: '2026-07-20', started_at: '2026-07-20T10:00:00Z',
+      closed_at: '2026-07-20T10:30:00Z', type: 'financeiro', type_label: 'Financeiro',
+      intent: 'Segunda Via de Fatura', area: 'Financeiro', status: 'unresolved',
+      status_label: 'Encerrada com insatisfação', resolved: false, nps_score: 4,
+      nps_category: 'detrator', attended_by: 'bot', channels_used: ['whatsapp'],
+      message_count: 5, sentiment: 'negative', current: false,
+    },
+  ],
+  insights: {
+    total_conversations: 3, average_frequency_days: 20.5, most_common_type: 'suporte',
+    most_common_type_label: 'Suporte', average_nps: 6.5, average_nps_category: 'detrator',
+    resolution_rate: 50, closed_conversations: 2,
+  },
+};
+
+export const emptyHistory: ConversationHistory = {
+  customer_id: 'cus1', months: 6, items: [],
+  insights: {
+    total_conversations: 0, average_frequency_days: null, most_common_type: null,
+    most_common_type_label: null, average_nps: null, average_nps_category: null,
+    resolution_rate: null, closed_conversations: 0,
+  },
 };

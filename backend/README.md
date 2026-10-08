@@ -104,11 +104,14 @@ GET  /api/v1/channels
 
 ```
 GET   /api/v1/conversations                        fila do Inbox
+                                                   ?transferred_only=true → fila do atendente
 GET   /api/v1/conversations/{id}                   transcrição + painel de IA
 POST  /api/v1/conversations/{id}/handover          transferir (RF005)
 POST  /api/v1/conversations/{id}/messages          responder como atendente
 GET   /api/v1/customers/{id}/context               visão 360°
+GET   /api/v1/customers/{id}/conversation-history  linha do tempo + indicadores (Sprint 4)
 GET   /api/v1/dashboard                            métricas
+GET   /api/v1/dashboard/nps-comparison             NPS bot × atendente (Sprint 4)
 GET   /api/v1/studio/config                        persona e tom de voz
 PUT   /api/v1/studio/config
 PATCH /api/v1/studio/channels/{canal}
@@ -122,7 +125,14 @@ pytest
 ```
 
 Cobrem as regras de domínio: persona, roteamento, política de transbordo,
-continuidade de intenção e as invariantes do agregado Conversation.
+continuidade de intenção e as invariantes do agregado Conversation — e, desde a
+Sprint 4, o comparativo de NPS, a fila do atendente, a detecção de sentimento,
+o histórico do cliente e os dados de demonstração.
+
+## Dados de demonstração
+
+`DEMO_SEED=true` cria, ao subir, conversas de exemplo para as melhorias da
+Sprint 4. Com MongoDB, `python -m scripts.seed_demo [--reset|--clear]`.
 
 ## Prompts
 

@@ -14,6 +14,8 @@ export type Area =
   | 'Suporte' | 'Vendas' | 'Financeiro' | 'Marketing' | 'Retenção' | 'Técnico';
 
 export type ResponseSource = 'generative' | 'template';
+export type Sentiment = 'positive' | 'neutral' | 'negative';
+export type QueueSort = 'priority' | 'wait_time' | 'recent';
 
 export interface Intent {
   slug: string;
@@ -173,6 +175,14 @@ export interface ConversationListItem {
   nps_score: number | null;
   nps_category: string | null;
   closed_by: string | null;
+  /** Momento da transferência para atendimento humano. */
+  handover_requested_at: string | null;
+  /** Atendente que assumiu o caso; nulo = fila sem dono. */
+  assigned_agent: string | null;
+  waiting_seconds: number | null;
+  attended_by: 'bot' | 'agent';
+  sentiment: Sentiment | null;
+  sentiment_score: number | null;
 }
 
 export interface Message {
@@ -183,6 +193,8 @@ export interface Message {
   timestamp: string;
   intent: Intent | null;
   source: ResponseSource | null;
+  /** Humor detectado — só em mensagens do cliente. */
+  sentiment: Sentiment | null;
 }
 
 export interface AIPanel {
@@ -208,6 +220,11 @@ export interface ConversationDetail {
   priority: Priority;
   channels_used: Channel[];
   started_at: string;
+  /** Humor atual do cliente, ponderado pelas mensagens recentes. */
+  sentiment: Sentiment | null;
+  /** 0 = insatisfeito, 0,5 = neutro, 1 = satisfeito. */
+  sentiment_score: number | null;
+  attended_by: 'bot' | 'agent';
   messages: Message[];
   ai: AIPanel;
 }
@@ -266,6 +283,76 @@ export interface Dashboard {
   automation_opportunities: { area: string; potential: number; estimated_savings_brl: number }[];
   alerts: { severity: string; title: string; description: string }[];
   intents: { name: string; count: number }[];
+}
+
+// ---------------------------------------------- histórico de conversas
+export type HistoryStatus = 'open' | 'resolved' | 'unresolved';
+export type HistoryType = 'vendas' | 'suporte' | 'financeiro' | 'cancelamento' | 'consulta';
+
+export interface ConversationHistoryItem {
+  id: string;
+  date: string;
+  started_at: string;
+  closed_at: string | null;
+  type: HistoryType;
+  type_label: string;
+  intent: string | null;
+  area: Area;
+  status: HistoryStatus;
+  status_label: string;
+  resolved: boolean;
+  nps_score: number | null;
+  nps_category: string | null;
+  attended_by: 'bot' | 'agent';
+  channels_used: Channel[];
+  message_count: number;
+  sentiment: Sentiment | null;
+  /** Conversa ainda vigente do cliente. */
+  current: boolean;
+}
+
+export interface ConversationInsights {
+  total_conversations: number;
+  average_frequency_days: number | null;
+  most_common_type: HistoryType | null;
+  most_common_type_label: string | null;
+  average_nps: number | null;
+  average_nps_category: string | null;
+  resolution_rate: number | null;
+  closed_conversations: number;
+}
+
+export interface ConversationHistory {
+  customer_id: string;
+  months: number;
+  items: ConversationHistoryItem[];
+  insights: ConversationInsights;
+}
+
+// ------------------------------------------------- NPS: bot versus atendente
+export interface NpsGroup {
+  /** Notas respondidas neste grupo. */
+  total: number;
+  average_score: number | null;
+  nps: number | null;
+  promoters: number;
+  passives: number;
+  detractors: number;
+  percentages: { promoters: number; passives: number; detractors: number };
+  surveys_sent: number;
+  unanswered: number;
+}
+
+export interface NpsComparison {
+  area: string;
+  bot: NpsGroup;
+  agent: NpsGroup;
+  overall: NpsGroup;
+  comparison: {
+    score_difference: number | null;
+    nps_difference: number | null;
+    agent_better: boolean | null;
+  };
 }
 
 // ------------------------------------------------------------- Design Studio

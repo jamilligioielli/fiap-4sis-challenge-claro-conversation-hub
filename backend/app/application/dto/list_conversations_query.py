@@ -10,3 +10,8 @@ class ListConversationsQuery:
     channel: str | None = None
     status: str | None = None
     search: str | None = None
+    # -- fila do atendente humano (Sprint 4) ---------------------------------
+    transferred_only: bool = False
+    sort_by: str | None = None
+    assigned_agent: str | None = None
+    include_unassigned: bool = True

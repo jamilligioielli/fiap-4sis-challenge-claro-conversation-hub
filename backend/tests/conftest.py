@@ -85,6 +85,20 @@ async def felipe(container: Container):
     customers = await container.customers.all()
     return next(c for c in customers if c.name.startswith("Felipe"))
 
+@pytest.fixture
+async def carla(container: Container):
+    """A persona que já chega impaciente com o suporte técnico."""
+    customers = await container.customers.all()
+    return next(c for c in customers if c.name.startswith("Carla"))
+
+
+@pytest.fixture
+async def juliana(container: Container):
+    """A persona que nunca falou com o hub."""
+    customers = await container.customers.all()
+    return next(c for c in customers if c.name.startswith("Juliana"))
+
+
 @asynccontextmanager
 async def _noop_lifespan(_app):
     yield

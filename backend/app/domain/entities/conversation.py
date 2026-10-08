@@ -11,6 +11,7 @@ from ..value_objects.clock import utcnow
 from ..value_objects.conversation_status import ConversationStatus
 from ..value_objects.intent import Intent
 from ..value_objects.priority import Priority
+from ..value_objects.sentiment import Sentiment
 from .handover import Handover
 from .identifiers import new_id
 from .nps_survey import NpsSurvey
@@ -44,6 +45,20 @@ class Conversation(BaseModel):
                     "significa que o cliente não respondeu.",
     )
     closed_at: datetime | None = None
+    agent_replies: int = Field(
+        default=0,
+        description="Quantas mensagens um atendente humano escreveu nesta conversa. "
+                    "Um atendente pode responder sem transferência formal, e esse "
+                    "atendimento também precisa contar como humano no NPS.",
+    )
+    sentiment: Sentiment | None = Field(
+        default=None,
+        description="Humor atual do cliente, ponderado pelas mensagens mais recentes.",
+    )
+    sentiment_score: float | None = Field(
+        default=None, ge=0.0, le=1.0,
+        description="Índice de humor: 0 muito insatisfeito, 0,5 neutro, 1 muito satisfeito.",
+    )
 
     # -- invariantes ------------------------------------------------------
     def apply_intent(self, intent: Intent, governs_area: bool = True) -> None:
@@ -84,6 +99,17 @@ class Conversation(BaseModel):
             raise ValueError("Não é possível atribuir atendente sem transferência solicitada.")
         self.handover.assigned_agent = agent
         self.updated_at = utcnow()
+
+    def register_agent_reply(self) -> None:
+        """Um humano escreveu na conversa — ela passa a contar como atendimento humano."""
+        self.agent_replies += 1
+        self.updated_at = utcnow()
+
+    def update_sentiment(self, sentiment: Sentiment, score: float) -> None:
+        if not 0.0 <= score <= 1.0:
+            raise ValueError("O índice de humor vai de 0 a 1.")
+        self.sentiment = sentiment
+        self.sentiment_score = round(score, 3)
 
     def close(self, closed_by: str = "bot", with_survey: bool = False) -> None:
         """Encerra o atendimento e, opcionalmente, abre a pesquisa.
@@ -151,6 +177,21 @@ class Conversation(BaseModel):
         próxima mensagem do cliente como nota para sempre.
         """
         return self.nps is not None and self.nps.open
+
+    @property
+    def attended_by(self) -> str:
+        """Quem conduziu o atendimento: `agent` (houve humano) ou `bot`.
+
+        Não existe campo próprio para isso porque o agregado já sabe: houve
+        transferência, um atendente escreveu, ou foi um atendente quem encerrou.
+        Qualquer um dos três basta — um 6 depois de um humano assumir conta uma
+        história diferente de um 6 que o assistente produziu sozinho.
+        """
+        if self.handover.requested or self.agent_replies > 0:
+            return "agent"
+        if self.nps is not None and self.nps.closed_by != "bot":
+            return "agent"
+        return "bot"
 
     @property
     def subject(self) -> str:

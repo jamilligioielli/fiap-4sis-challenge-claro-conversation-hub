@@ -16,9 +16,10 @@ from .intent import Intent
 from .intent_engine import IntentEngine
 from .priority import Priority
 from .response_source import ResponseSource
+from .sentiment import Sentiment
 from .unidentified_intent import UNIDENTIFIED
 
 __all__ = [
     "Area", "Author", "Channel", "Consent", "ContextDecision", "ConversationStatus",
-    "Intent", "IntentEngine", "Priority", "ResponseSource", "UNIDENTIFIED", "utcnow",
+    "Intent", "IntentEngine", "Priority", "ResponseSource", "Sentiment", "UNIDENTIFIED", "utcnow",
 ]

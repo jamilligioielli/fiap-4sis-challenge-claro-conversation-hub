@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from ...domain.value_objects.channel import Channel
 from ...domain.value_objects.intent import Intent
 from ...domain.value_objects.response_source import ResponseSource
+from ...domain.value_objects.sentiment import Sentiment
 
 
 @dataclass
@@ -31,3 +32,5 @@ class IngestResult:
     awaiting_nps: bool = False
     conversation_closed: bool = False
     nps_score: int | None = None
+    sentiment: Sentiment | None = None
+    sentiment_score: float | None = None

@@ -10,6 +10,7 @@ from ..value_objects.channel import Channel
 from ..value_objects.clock import utcnow
 from ..value_objects.intent import Intent
 from ..value_objects.response_source import ResponseSource
+from ..value_objects.sentiment import Sentiment
 from .identifiers import new_id
 
 
@@ -24,4 +25,8 @@ class Message(BaseModel):
     source: ResponseSource | None = Field(
         default=None,
         description="Preenchido em mensagens do assistente: quem redigiu o texto.",
+    )
+    sentiment: Sentiment | None = Field(
+        default=None,
+        description="Humor detectado na mensagem. Só existe em mensagens do cliente.",
     )

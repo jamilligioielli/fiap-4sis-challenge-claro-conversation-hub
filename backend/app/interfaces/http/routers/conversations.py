@@ -1,6 +1,8 @@
 """Console — conversas. Alimenta o Inbox e a tela de Conversa Ativa."""
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 
 from ....application.dto.list_conversations_query import ListConversationsQuery
@@ -27,7 +29,12 @@ NOT_FOUND = {404: {"model": ErrorResponse, "description": "Conversa não encontr
     summary="Listar a fila de conversas (Inbox)",
     description=("Fila única com as conversas de **todos os canais**. Os filtros são "
                  "combináveis e correspondem aos controles da tela de Inbox.\n\n"
-                 "O campo `timestamp` já vem como rótulo relativo pronto para exibição."),
+                 "O campo `timestamp` já vem como rótulo relativo pronto para exibição.\n\n"
+                 "**Fila do atendente humano:** `transferred_only=true` devolve só as "
+                 "conversas transferidas e ainda em curso, ordenadas por prioridade de "
+                 "atendimento (prioridade e, em empate, maior tempo de espera). Com "
+                 "`agent`, ficam só as daquele atendente — mais as ainda sem dono, salvo "
+                 "`include_unassigned=false`."),
 )
 async def list_conversations(
     area: str | None = Query(None, description="Suporte, Vendas, Financeiro, Marketing, Retenção, Técnico."),
@@ -35,11 +42,27 @@ async def list_conversations(
     status_filter: str | None = Query(None, alias="status",
                                       description="active, waiting, transferred ou pending."),
     search: str | None = Query(None, description="Busca em nome do cliente e última mensagem."),
+    transferred_only: bool = Query(
+        False, description="Só conversas transferidas para atendimento humano e em curso."),
+    sort_by: Literal["priority", "wait_time", "recent"] | None = Query(
+        None, description="priority (padrão da fila do atendente), wait_time ou recent."),
+    agent: str | None = Query(
+        None, description="Atendente: devolve só as conversas dele (e as sem dono)."),
+    include_unassigned: bool = Query(
+        True, description="Com `agent`, inclui as conversas transferidas ainda sem dono."),
     container: Container = Depends(get_container),
 ) -> list[ConversationListItem]:
     items = await container.list_conversations.execute(ListConversationsQuery(
-        area=area, channel=channel, status=status_filter, search=search))
-    return [conversation_to_list_item(c) for c in items]
+        area=area, channel=channel, status=status_filter, search=search,
+        transferred_only=transferred_only, sort_by=sort_by, assigned_agent=agent,
+        include_unassigned=include_unassigned))
+    if not transferred_only:
+        return [conversation_to_list_item(c) for c in items]
+    # A fila humana é curta e o atendente decide pelo tamanho da conversa:
+    # aqui vale contar as mensagens de cada uma.
+    return [conversation_to_list_item(
+                c, len(await container.conversations.transcript(c.id)))
+            for c in items]
 
 
 @router.get(
@@ -67,6 +90,8 @@ async def get_conversation(
         status=conversation.status, area=conversation.area, priority=conversation.priority,
         channels_used=conversation.channels_used, started_at=conversation.started_at,
         initiated_by_company=conversation.initiated_by_company,
+        sentiment=conversation.sentiment, sentiment_score=conversation.sentiment_score,
+        attended_by=conversation.attended_by,
         messages=[message_to_dto(m) for m in detail.messages],
         ai=AIPanelResponse(
             intent=intent_to_dto(conversation.intent),

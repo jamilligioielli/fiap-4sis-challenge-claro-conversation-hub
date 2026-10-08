@@ -9,6 +9,7 @@ import CustomerContext from './pages/console/CustomerContext';
 import Dashboard from './pages/console/Dashboard';
 import DesignStudio from './pages/console/DesignStudio';
 import Inbox from './pages/console/Inbox';
+import ConversationInboxForAgent from './pages/console/ConversationInboxForAgent';
 import Outreach from './pages/console/Outreach';
 
 /**
@@ -34,6 +35,7 @@ export default function App() {
         <Route path="/console" element={<ConsoleLayout />}>
           <Route index element={<Dashboard />} />
           <Route path="inbox" element={<Inbox />} />
+          <Route path="inbox-atendente" element={<ConversationInboxForAgent />} />
           <Route path="contato-ativo" element={<Outreach />} />
           <Route path="conversation/:id" element={<Conversation />} />
           <Route path="customer-context/:id" element={<CustomerContext />} />

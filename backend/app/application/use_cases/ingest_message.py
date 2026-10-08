@@ -31,6 +31,7 @@ from ...domain.services.intent_continuity import IntentContinuityService
 from ...domain.services.nps_service import NpsService
 from ...domain.services.persona_service import PersonaService
 from ...domain.services.routing_service import Flow, RoutingService
+from ...domain.services.sentiment_detection_service import SentimentDetectionService
 from ...domain.value_objects.author import Author
 from ...domain.value_objects.channel import Channel
 from ...domain.value_objects.context_decision import ContextDecision
@@ -94,6 +95,7 @@ class IngestMessageUseCase:
         context_confirmation: ContextConfirmationService | None = None,
         nps: NpsService | None = None,
         closure: ClosureService | None = None,
+        sentiment: SentimentDetectionService | None = None,
     ) -> None:
         self._sessions = sessions
         self._conversations = conversations
@@ -111,6 +113,7 @@ class IngestMessageUseCase:
         self._context = context_confirmation or ContextConfirmationService()
         self._nps = nps or NpsService()
         self._closure = closure or ClosureService()
+        self._sentiment = sentiment or SentimentDetectionService()
         self._identity = IdentityService(sessions, customers)
 
     # ===================================================================== fluxo
@@ -142,6 +145,10 @@ class IngestMessageUseCase:
         if customer is not None:
             customer.last_inbound_at = conversation.updated_at
             await self._customers.save(customer)
+
+        # O humor é recalculado a cada mensagem, em qualquer caminho — inclusive
+        # depois do transbordo, que é quando o atendente mais precisa dele.
+        await self._refresh_sentiment(conversation)
 
         # -- pesquisa em aberto: a próxima mensagem é a nota -----------------
         if conversation.awaiting_nps:
@@ -348,6 +355,8 @@ class IngestMessageUseCase:
                 customer_name=customer.name if customer else "",
                 channels_used=[command.channel],
             )
+            reading = self._sentiment.analyze(command.text)
+            fresh.update_sentiment(reading.sentiment, reading.score)
             await self._conversations.save(fresh)
             await self._sessions.save(fresh_session)
             await self._audit.record("context.confirmation.restarted", customer_id,
@@ -529,12 +538,28 @@ class IngestMessageUseCase:
         )
         return conversation, session, False, None
 
+    async def _refresh_sentiment(self, conversation: Conversation) -> None:
+        """Atualiza o humor da conversa a partir das mensagens do cliente.
+
+        Salva na hora: alguns caminhos recarregam a conversa do repositório
+        antes de responder, e o humor recém-calculado não pode se perder ali.
+        """
+        transcript = await self._conversations.transcript(conversation.id)
+        texts = [m.text for m in transcript if m.author is Author.customer]
+        if not texts:
+            return
+        reading = self._sentiment.detect_with_score(texts)
+        conversation.update_sentiment(reading.sentiment, reading.score)
+        await self._conversations.save(conversation)
+
     async def _persist(self, event: ConversationEvent,
                        source: ResponseSource | None = None) -> None:
+        sentiment = (self._sentiment.analyze(event.text).sentiment
+                     if event.author is Author.customer else None)
         await self._conversations.add_message(Message(
             conversation_id=event.conversation_id, author=event.author,
             text=event.text, channel=event.channel, timestamp=event.occurred_at,
-            source=source,
+            source=source, sentiment=sentiment,
         ))
 
     def _result(self, conversation: Conversation, session: Session,
@@ -565,4 +590,6 @@ class IngestMessageUseCase:
             awaiting_nps=awaiting_nps or conversation.awaiting_nps,
             conversation_closed=conversation.closed_at is not None,
             nps_score=conversation.nps.score if conversation.nps else None,
+            sentiment=conversation.sentiment,
+            sentiment_score=conversation.sentiment_score,
         )

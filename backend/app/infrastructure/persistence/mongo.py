@@ -29,6 +29,10 @@ async def connect(url: str, db_name: str):
         db = client[db_name]
         await db.conversations.create_index("id", unique=True)
         await db.conversations.create_index("customer_id")
+        # Fila do atendente: conversas transferidas, por tempo de espera.
+        await db.conversations.create_index([("status", 1), ("handover.requested_at", 1)])
+        # Histórico do cliente: as mais recentes de um cliente primeiro.
+        await db.conversations.create_index([("customer_id", 1), ("started_at", -1)])
         await db.messages.create_index("conversation_id")
         await db.customers.create_index("id", unique=True)
         log.info("MongoDB conectado em %s", url)

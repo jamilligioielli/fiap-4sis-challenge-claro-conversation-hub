@@ -13,6 +13,7 @@ from ...domain.entities.message import Message
 from ...domain.ports.audit_log import AuditLog
 from ...domain.ports.conversation_repository import ConversationRepository
 from ...domain.ports.customer_repository import CustomerRepository
+from ...domain.services.attendance_queue import AttendanceQueue, QueueSort
 from ...domain.value_objects.author import Author
 from ...domain.value_objects.channel import Channel
 from ...domain.value_objects.clock import utcnow
@@ -37,8 +38,10 @@ def relative_label(moment: datetime) -> str:
 
 # ------------------------------------------------------------------ listagem
 class ListConversationsUseCase:
-    def __init__(self, conversations: ConversationRepository) -> None:
+    def __init__(self, conversations: ConversationRepository,
+                 queue: AttendanceQueue | None = None) -> None:
         self._conversations = conversations
+        self._queue = queue or AttendanceQueue()
 
     async def execute(self, query: ListConversationsQuery) -> list[Conversation]:
         items = await self._conversations.list(
@@ -47,6 +50,18 @@ class ListConversationsUseCase:
             needle = query.search.lower()
             items = [c for c in items
                      if needle in c.customer_name.lower() or needle in c.last_message.lower()]
+
+        if query.transferred_only:
+            items = self._queue.transferred(
+                items, agent=query.assigned_agent,
+                include_unassigned=query.include_unassigned)
+
+        # Sem critério explícito, a fila do atendente ordena por prioridade de
+        # atendimento; a fila omnichannel mantém a ordem por atividade recente.
+        sort_by = query.sort_by or (QueueSort.priority.value if query.transferred_only
+                                    else None)
+        if sort_by:
+            items = self._queue.sort(items, QueueSort(sort_by), utcnow())
         return items
 
 
@@ -149,14 +164,18 @@ class RequestHandoverUseCase:
             return None
 
         transcript = await self._conversations.transcript(conversation_id)
+        # Uma conversa que o assistente já transferiu chega à fila sem dono.
+        # Chamar este caso de uso de novo, com um atendente, é ele assumir o caso.
+        already_with_human = conversation.with_human
         conversation.request_handover(reason, conversation.handover.services_consulted,
                                       len(transcript))
         if agent:
             conversation.assign_agent(agent)
 
+        text = (f"{agent} assumiu o atendimento" if already_with_human and agent
+                else f"Conversa transferida para atendimento humano — {reason}")
         await self._conversations.add_message(Message(
-            conversation_id=conversation_id, author=Author.system,
-            text=f"Conversa transferida para atendimento humano — {reason}",
+            conversation_id=conversation_id, author=Author.system, text=text,
         ))
         await self._conversations.save(conversation)
         await self._audit.record("handover.assigned", conversation.customer_id,
@@ -183,6 +202,7 @@ class ReplyAsAgentUseCase:
         await self._conversations.add_message(message)
 
         conversation.record_message(text, target, from_customer=False)
+        conversation.register_agent_reply()
         await self._conversations.save(conversation)
         await self._audit.record("agent.replied", conversation.customer_id,
                                  {"conversation_id": conversation_id})

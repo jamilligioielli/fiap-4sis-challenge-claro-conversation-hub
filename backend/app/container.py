@@ -13,8 +13,10 @@ import logging
 from .application.use_cases.console import (GetConversationUseCase, ListConversationsUseCase,
                                             ReplyAsAgentUseCase, RequestHandoverUseCase)
 from .application.use_cases.close_conversation import CloseConversationUseCase
+from .application.use_cases.conversation_history import GetConversationHistoryUseCase
 from .application.use_cases.customer_context import GetCustomerContextUseCase
-from .application.use_cases.dashboard import GetDashboardMetricsUseCase
+from .application.use_cases.dashboard import (GetDashboardMetricsUseCase,
+                                              GetNpsComparisonUseCase)
 from .application.use_cases.ingest_message import IngestMessageUseCase
 from .application.use_cases.list_customers import ListCustomersUseCase
 from .application.use_cases.outreach import (ListEligibleCustomersUseCase, SendOutreachUseCase)
@@ -32,7 +34,7 @@ from .domain.ports.response_generator import ResponseGenerator
 from .domain.ports.session_repository import SessionRepository
 from .domain.ports.studio_config_repository import StudioConfigRepository
 from .domain.services.handover_policy import HandoverPolicy
-from .infrastructure import seed
+from .infrastructure import demo_seed, seed
 from .infrastructure.buffering.message_debouncer import MessageDebouncer
 from .infrastructure.integrations.mock_backend_systems import MockBackendSystems
 from .infrastructure.llm.llm_client import LLMClient
@@ -95,6 +97,8 @@ class Container:
             self.audit = InMemoryAuditLog()
 
         await seed.populate(self.customers, self.conversations, self.studio)
+        if s.demo_seed:
+            await demo_seed.populate_demo(self.customers, self.conversations)
         self._wire_language_model(s)
         self.backends = MockBackendSystems()
         self.whatsapp = WhatsAppCloudGateway(s.whatsapp)
@@ -180,8 +184,16 @@ class Container:
                                          self.backends, self.audit)
 
     @property
+    def conversation_history(self) -> GetConversationHistoryUseCase:
+        return GetConversationHistoryUseCase(self.conversations, self.customers, self.audit)
+
+    @property
     def dashboard_metrics(self) -> GetDashboardMetricsUseCase:
         return GetDashboardMetricsUseCase(self.conversations)
+
+    @property
+    def nps_comparison(self) -> GetNpsComparisonUseCase:
+        return GetNpsComparisonUseCase(self.conversations)
 
     @property
     def get_studio_config(self) -> GetStudioConfigUseCase:

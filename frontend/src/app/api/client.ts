@@ -6,9 +6,9 @@
  * dentro dos componentes.
  */
 import type {
-  Channel, ClosedConversation, ConversationDetail, ConversationListItem, CustomerContext,
+  Channel, ClosedConversation, ConversationDetail, ConversationHistory, ConversationListItem, CustomerContext,
   CustomerSummary, Dashboard, EligibleCustomer, Greeting, Health, HubReply,
-  Message, OutreachResult, PersonaPreview, StudioConfig, WhatsAppStatus,
+  Message, NpsComparison, OutreachResult, QueueSort, PersonaPreview, StudioConfig, WhatsAppStatus,
 } from './types';
 
 /** Em desenvolvimento o Vite faz proxy de /api e /health para o back-end. */
@@ -87,6 +87,18 @@ export const api = {
     return request(`/api/v1/conversations${query(filters)}`);
   },
 
+  /** Fila do atendente humano: só transferidas, por prioridade de atendimento. */
+  listAgentQueue(filters: {
+    agent?: string; includeUnassigned?: boolean; sortBy?: QueueSort;
+  } = {}): Promise<ConversationListItem[]> {
+    return request(`/api/v1/conversations${query({
+      transferred_only: 'true',
+      agent: filters.agent,
+      include_unassigned: filters.agent ? String(filters.includeUnassigned ?? true) : undefined,
+      sort_by: filters.sortBy,
+    })}`);
+  },
+
   getConversation(id: string): Promise<ConversationDetail> {
     return request(`/api/v1/conversations/${id}`);
   },
@@ -121,12 +133,23 @@ export const api = {
     return request(`/api/v1/customers/${customerId}/context`);
   },
 
+  /** Linha do tempo: últimas conversas do cliente e os indicadores do período. */
+  getConversationHistory(customerId: string, months = 6): Promise<ConversationHistory> {
+    return request(`/api/v1/customers/${customerId}/conversation-history${query({
+      months: String(months) })}`);
+  },
+
   listCustomerConversations(customerId: string): Promise<ConversationListItem[]> {
     return request(`/api/v1/customers/${customerId}/conversations`);
   },
 
   getDashboard(area?: string): Promise<Dashboard> {
     return request(`/api/v1/dashboard${query({ area })}`);
+  },
+
+  /** NPS separado entre atendimento automatizado e humano. */
+  getNpsComparison(area?: string): Promise<NpsComparison> {
+    return request(`/api/v1/dashboard/nps-comparison${query({ area })}`);
   },
 
   // -- Design Studio ------------------------------------------------------

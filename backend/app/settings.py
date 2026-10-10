@@ -123,6 +123,10 @@ class Settings:
     handover_confidence_threshold: float = float(
         os.getenv("HANDOVER_CONFIDENCE_THRESHOLD", "0.55"))
 
+    # Dados de demonstração da Sprint 4 (conversas, notas, fila humana). Desligado
+    # por padrão: o painel continua começando vazio e se movendo com o uso real.
+    demo_seed: bool = os.getenv("DEMO_SEED", "false").lower() == "true"
+
     llm: LLMSettings = field(default_factory=LLMSettings)
     whatsapp: WhatsAppSettings = field(default_factory=WhatsAppSettings)
     conversation: ConversationSettings = field(default_factory=ConversationSettings)

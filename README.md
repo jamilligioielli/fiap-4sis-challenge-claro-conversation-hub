@@ -161,7 +161,8 @@ envio enquanto o impedimento existir.
 ## Testes
 
 ```bash
-cd backend && pytest
+cd backend && pip install -r requirements-dev.txt && pytest
+cd frontend && npm install && npm test && npm run build
 ```
 ---
 

@@ -1,10 +1,15 @@
 """Clientes — lista para simulação e visão consolidada para o console."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Path, status
+from dataclasses import asdict
+
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 
 from ....container import Container, get_container
-from ..mappers import conversation_to_list_item, customer_to_context, customer_to_summary
+from ..mappers import (conversation_to_history_item, conversation_to_list_item,
+                       customer_to_context, customer_to_summary)
+from ..schemas.conversation_history_response import (ConversationHistoryResponse,
+                                                     ConversationInsightsResponse)
 from ..schemas.conversation_list_item import ConversationListItem
 from ..schemas.customer_context_response import CustomerContextResponse
 from ..schemas.customer_summary_response import CustomerSummaryResponse
@@ -72,3 +77,33 @@ async def list_customer_conversations(
         transcript = await container.conversations.transcript(conversation.id)
         result.append(conversation_to_list_item(conversation, len(transcript)))
     return result
+
+
+@router.get(
+    "/{customer_id}/conversation-history",
+    response_model=ConversationHistoryResponse,
+    responses=NOT_FOUND,
+    summary="Linha do tempo das conversas do cliente",
+    description=("As conversas mais recentes do cliente dentro da janela de meses, da mais "
+                 "nova para a mais antiga, cada uma com tipo, situação (em andamento, "
+                 "resolvida, encerrada com insatisfação) e nota de NPS.\n\n"
+                 "Acompanha os indicadores do período: frequência de contato, assunto mais "
+                 "comum, NPS médio e taxa de resolução. A transcrição completa de cada "
+                 "conversa sai em `GET /api/v1/conversations/{id}`.\n\n"
+                 "Toda consulta é registrada na trilha de auditoria."),
+)
+async def get_conversation_history(
+    customer_id: str = Path(description="Identificador do cliente."),
+    months: int = Query(6, ge=1, le=24, description="Janela, em meses."),
+    limit: int = Query(6, ge=1, le=50, description="Máximo de conversas na linha do tempo."),
+    container: Container = Depends(get_container),
+) -> ConversationHistoryResponse:
+    history = await container.conversation_history.execute(customer_id, months, limit)
+    if history is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Cliente não encontrado")
+    return ConversationHistoryResponse(
+        customer_id=history.customer_id, months=history.months,
+        items=[conversation_to_history_item(e.conversation, e.message_count)
+               for e in history.items],
+        insights=ConversationInsightsResponse(**asdict(history.insights)),
+    )

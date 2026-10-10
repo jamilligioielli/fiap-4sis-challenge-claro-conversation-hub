@@ -34,6 +34,7 @@ COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY backend/app ./app
+COPY backend/scripts ./scripts
 COPY --from=web /web/dist ./web
 
 # O PaaS injeta a porta em $PORT; 8000 é o padrão para rodar local.

@@ -45,6 +45,10 @@ class HubReplyResponse(BaseModel):
         default=False, description="O atendimento foi encerrado nesta conversa.")
     nps_score: int | None = Field(
         default=None, description="Nota de 0 a 10, quando o cliente já respondeu.")
+    sentiment: str | None = Field(
+        default=None, description="Humor atual do cliente: positive, neutral ou negative.")
+    sentiment_score: float | None = Field(
+        default=None, description="Índice de humor de 0 (insatisfeito) a 1 (satisfeito).")
     superseded: bool = Field(
         default=False,
         description="Esta mensagem foi agrupada com outra mais recente do mesmo cliente "

@@ -13,6 +13,7 @@ import { useDashboard } from '../../api/hooks';
 import type { Dashboard as DashboardData } from '../../api/types';
 import { AsyncBoundary } from '../../components/AsyncBoundary';
 import KPICard from '../../components/KPICard';
+import NpsComparisonSection from '../../components/nps/NpsComparisonSection';
 import { cn } from '../../components/ui/utils';
 
 /**
@@ -58,7 +59,7 @@ export default function DashboardPage() {
   const state = useDashboard(area, 8000);
 
   return (
-    <div className="p-6 space-y-6 max-w-[1600px] mx-auto">
+    <div className="p-4 md:p-6 space-y-6 max-w-[1600px] mx-auto">
       <div className="flex items-center gap-3 flex-wrap">
         <span className="text-sm font-medium text-gray-500">Área:</span>
         {AREAS.map((option) => {
@@ -90,7 +91,7 @@ export default function DashboardPage() {
       </div>
 
       <AsyncBoundary state={state} loadingLabel="Calculando as métricas…">
-        {(data) => <DashboardView data={data} />}
+        {(data) => <DashboardView data={data} area={area} />}
       </AsyncBoundary>
     </div>
   );
@@ -128,7 +129,7 @@ function DashboardEmpty() {
   );
 }
 
-function DashboardView({ data }: { data: DashboardData }) {
+function DashboardView({ data, area }: { data: DashboardData; area: string }) {
   const channels = data.channels.filter((c) => c.value > 0);
   const totalChannel = channels.reduce((sum, c) => sum + c.value, 0);
 
@@ -151,6 +152,9 @@ function DashboardView({ data }: { data: DashboardData }) {
           trend={data.nps.trend} trendLabel="vs mês anterior"
           icon={<TrendingUp className="w-5 h-5 text-[#E10019]" />} />
       </div>
+
+      {/* Melhoria 1 — a nota muda quando um humano entra no atendimento? */}
+      <NpsComparisonSection area={area} />
 
       {/* gráficos */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">

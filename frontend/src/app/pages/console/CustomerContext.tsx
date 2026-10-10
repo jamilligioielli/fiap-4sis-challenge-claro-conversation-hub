@@ -1,12 +1,19 @@
+import { useState } from 'react';
 import { Link, useParams } from 'react-router';
 import {
   ArrowLeft, MessageCircle, Smartphone, User, CreditCard, TrendingUp, Heart,
   Mail, Phone, Globe,
 } from 'lucide-react';
 
-import { useCustomerContext } from '../../api/hooks';
-import type { CustomerContext as CustomerContextData } from '../../api/types';
+import { useCustomerContext, useCustomerConversationHistory } from '../../api/hooks';
+import type {
+  ConversationHistoryItem, CustomerContext as CustomerContextData,
+} from '../../api/types';
 import { AsyncBoundary, EmptyState } from '../../components/AsyncBoundary';
+import CustomerSnapshot from '../../components/context/CustomerSnapshot';
+import ConversationHistoryModal from '../../components/history/ConversationHistoryModal';
+import ConversationTimeline from '../../components/history/ConversationTimeline';
+import ConversationTimelineInsights from '../../components/history/ConversationTimelineInsights';
 import { cn } from '../../components/ui/utils';
 
 /**
@@ -69,8 +76,11 @@ export default function CustomerContextPage() {
 }
 
 function ContextView({ customer }: { customer: CustomerContextData }) {
+  const history = useCustomerConversationHistory(customer.id);
+  const [opened, setOpened] = useState<ConversationHistoryItem | null>(null);
+
   return (
-    <div className="p-6 max-w-[1600px] mx-auto">
+    <div className="p-4 md:p-6 max-w-[1600px] mx-auto">
       <div className="mb-6">
         <Link to="/console/inbox"
           className="inline-flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 mb-3">
@@ -81,6 +91,17 @@ function ContextView({ customer }: { customer: CustomerContextData }) {
         <p className="text-sm text-gray-600">
           Visão 360° que alimenta a IA e os atendentes em tempo real
         </p>
+      </div>
+
+      {/* Resumo em três cartões: quem é, o que tratou por último, como costuma ser. */}
+      <div className="mb-6">
+        <CustomerSnapshot
+          layout="row"
+          customer={customer}
+          history={history.data}
+          onOpenHistory={() => document.getElementById('historico-conversas')
+            ?.scrollIntoView({ behavior: 'smooth' })}
+        />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -258,8 +279,25 @@ function ContextView({ customer }: { customer: CustomerContextData }) {
 
         {/* -------------------------------------------------- coluna 3 */}
         <div className="space-y-6">
+          <section id="historico-conversas" className="bg-white rounded-xl border border-gray-200 p-5">
+            <h3 className="font-semibold text-gray-900 mb-4">Histórico de Conversas</h3>
+            {history.loading && !history.data && (
+              <p className="text-sm text-gray-500">Carregando o histórico…</p>
+            )}
+            {history.error && !history.data && (
+              <p className="text-sm text-gray-500">Histórico indisponível agora.</p>
+            )}
+            {history.data && (
+              <>
+                <ConversationTimeline items={history.data.items} onSelect={setOpened} />
+                <ConversationTimelineInsights insights={history.data.insights}
+                                              months={history.data.months} />
+              </>
+            )}
+          </section>
+
           <section className="bg-white rounded-xl border border-gray-200 p-5">
-            <h3 className="font-semibold text-gray-900 mb-4">Timeline de Eventos</h3>
+            <h3 className="font-semibold text-gray-900 mb-4">Eventos da Conta</h3>
             {customer.timeline.length === 0 ? (
               <p className="text-sm text-gray-500">Nenhum evento registrado ainda.</p>
             ) : (
@@ -305,6 +343,8 @@ function ContextView({ customer }: { customer: CustomerContextData }) {
           </section>
         </div>
       </div>
+
+      <ConversationHistoryModal item={opened} onClose={() => setOpened(null)} />
     </div>
   );
 }

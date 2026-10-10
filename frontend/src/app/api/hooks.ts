@@ -12,8 +12,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { api, ApiError } from './client';
 import type {
-  ConversationDetail, ConversationListItem, CustomerContext, CustomerSummary,
-  Dashboard, EligibleCustomer, Health, StudioConfig, WhatsAppStatus,
+  ConversationDetail, ConversationHistory, ConversationListItem, CustomerContext, CustomerSummary,
+  Dashboard, EligibleCustomer, Health, NpsComparison, QueueSort, StudioConfig,
+  WhatsAppStatus,
 } from './types';
 
 export interface AsyncState<T> {
@@ -87,6 +88,35 @@ export function useConversations(
   );
 }
 
+/**
+ * Fila do atendente. `mineOnly` liga o filtro "transferidas para mim" — que
+ * inclui a fila ainda sem dono, de onde o atendente puxa o próximo caso.
+ */
+export function useAgentInboxConversations(
+  filters: { agent: string; mineOnly: boolean; sortBy: QueueSort },
+  pollMs?: number,
+): AsyncState<ConversationListItem[]> {
+  const { agent, mineOnly, sortBy } = filters;
+  return useAsync(
+    () => api.listAgentQueue({ agent: mineOnly ? agent : undefined, sortBy }),
+    [agent, mineOnly, sortBy],
+    pollMs,
+  );
+}
+
+/**
+ * Relógio da tela. Recalcula tempos de espera sem buscar nada na API — o
+ * tempo passa no navegador, não no servidor.
+ */
+export function useNow(intervalMs = 30000): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), intervalMs);
+    return () => clearInterval(id);
+  }, [intervalMs]);
+  return now;
+}
+
 export function useConversation(id: string | undefined, pollMs?: number)
   : AsyncState<ConversationDetail> {
   return useAsync(
@@ -106,9 +136,34 @@ export function useCustomerContext(customerId: string | undefined)
   );
 }
 
+/**
+ * Histórico de conversas do cliente.
+ *
+ * Sem polling: cada leitura entra na trilha de auditoria, e consultar o
+ * histórico a cada poucos segundos encheria a trilha de acessos que ninguém
+ * fez. `version` recarrega quando a conversa aberta muda de fato.
+ */
+export function useCustomerConversationHistory(
+  customerId: string | undefined, version: string | number = 0, months = 6,
+): AsyncState<ConversationHistory> {
+  return useAsync(
+    () => (customerId
+      ? api.getConversationHistory(customerId, months)
+      : Promise.reject(new ApiError(404, 'Sem cliente'))),
+    [customerId, version, months],
+  );
+}
+
 export function useDashboard(area: string | undefined, pollMs?: number): AsyncState<Dashboard> {
   const scoped = area && area !== 'Todos' ? area : undefined;
   return useAsync(() => api.getDashboard(scoped), [scoped], pollMs);
+}
+
+/** Mesmo recorte de área do painel — trocar o filtro move os dois juntos. */
+export function useNpsComparison(area: string | undefined, pollMs?: number)
+  : AsyncState<NpsComparison> {
+  const scoped = area && area !== 'Todos' ? area : undefined;
+  return useAsync(() => api.getNpsComparison(scoped), [scoped], pollMs);
 }
 
 export function useStudioConfig(): AsyncState<StudioConfig> {

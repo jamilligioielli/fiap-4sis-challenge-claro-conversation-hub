@@ -72,6 +72,8 @@ async def ingest(
         awaiting_nps=result.awaiting_nps,
         conversation_closed=result.conversation_closed,
         nps_score=result.nps_score,
+        sentiment=result.sentiment.value if result.sentiment else None,
+        sentiment_score=result.sentiment_score,
     )
 
 

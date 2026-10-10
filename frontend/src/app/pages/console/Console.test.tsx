@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -17,6 +17,7 @@ vi.mock('../../api/client', () => ({
     listConversations: vi.fn(),
     getConversation: vi.fn(),
     getCustomerContext: vi.fn(),
+    getConversationHistory: vi.fn(),
     replyAsAgent: vi.fn(),
     requestHandover: vi.fn(),
     closeConversation: vi.fn(),
@@ -37,16 +38,29 @@ beforeEach(() => {
   mocked.getConversation.mockResolvedValue(fixtures.conversationDetail);
   mocked.getCustomerContext.mockResolvedValue(fixtures.customerContext);
   mocked.listCustomers.mockResolvedValue([fixtures.customerSummary]);
+  mocked.getConversationHistory.mockResolvedValue(fixtures.conversationHistory);
 });
 
 // ================================================================== moldura
 describe('moldura do console', () => {
+  it('no celular a navegação vira uma faixa sob o cabeçalho', async () => {
+    renderAt(<ConsoleLayout />, { route: '/console/inbox-atendente' });
+
+    const faixa = await screen.findByRole('navigation', { name: 'Navegação do console' });
+    expect(faixa.className).toContain('md:hidden');
+    expect(within(faixa).getByRole('link', { name: /Inbox do Atendente/ }).className)
+      .toContain('text-[#E10019]');
+  });
+
   it('não oferece o simulador dentro do console', async () => {
     renderAt(<ConsoleLayout />, { route: '/console' });
 
-    expect(await screen.findByRole('link', { name: /Dashboard/ })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Inbox Omnichannel/ })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Contato Ativo/ })).toBeInTheDocument();
+    const menu = await screen.findByRole('navigation', { name: 'Menu principal' });
+    expect(within(menu).getByRole('link', { name: /Dashboard/ })).toBeInTheDocument();
+    expect(within(menu).getByRole('link', { name: /Inbox Omnichannel/ })).toBeInTheDocument();
+    expect(within(menu).getByRole('link', { name: /Inbox do Atendente/ }))
+      .toHaveAttribute('href', '/console/inbox-atendente');
+    expect(within(menu).getByRole('link', { name: /Contato Ativo/ })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /Simulador/ })).not.toBeInTheDocument();
   });
 
@@ -255,8 +269,10 @@ describe('contexto do cliente', () => {
   it('mostra o plano e o consumo', async () => {
     renderContext();
 
-    expect(await screen.findByText('Claro Flex 30GB')).toBeInTheDocument();
-    expect(screen.getByText('Maria Silva Santos')).toBeInTheDocument();
+    expect(await screen.findAllByText('Claro Flex 30GB')).not.toHaveLength(0);
+    expect(screen.getAllByText('Maria Silva Santos')).not.toHaveLength(0);
+    expect(screen.getByRole('progressbar', { name: /Consumo da franquia/ }))
+      .toHaveAttribute('aria-valuenow', '92');
   });
 
   it('mascara o documento do cliente', async () => {
@@ -268,7 +284,7 @@ describe('contexto do cliente', () => {
   it('mostra os canais por onde o cliente já passou', async () => {
     renderContext();
 
-    await screen.findByText('Maria Silva Santos');
+    await screen.findAllByText('Maria Silva Santos');
     expect(screen.getByText('Conversas').closest('div')).toHaveTextContent('2');
   });
 
@@ -364,5 +380,82 @@ describe('detalhe selecionado no inbox', () => {
 
     expect(await screen.findAllByText(/WhatsApp/)).not.toHaveLength(0);
     expect(screen.getAllByText(/App/).length).toBeGreaterThan(0);
+  });
+});
+
+// ===================================================== Sprint 4 — painel
+describe('painel do atendente (sprint 4)', () => {
+  function renderConversation() {
+    return renderAt(<Conversation />, {
+      path: '/console/conversation/:id', route: '/console/conversation/conv1',
+    });
+  }
+
+  it('mostra o humor do cliente no topo do painel', async () => {
+    mocked.getConversation.mockResolvedValue({
+      ...fixtures.conversationDetail, sentiment: 'negative', sentiment_score: 0.2,
+    });
+    renderConversation();
+
+    const status = await screen.findByRole('status', { name: /Frustrado/ });
+    expect(status).toHaveTextContent(/abordagem empática/);
+  });
+
+  it('marca o humor em cada mensagem do cliente', async () => {
+    renderConversation();
+
+    expect(await screen.findByRole('img', { name: 'Sentimento detectado: neutro' }))
+      .toBeInTheDocument();
+  });
+
+  it('organiza o contexto em cartões de cliente, intenção e histórico', async () => {
+    renderConversation();
+
+    expect(await screen.findByRole('region', { name: 'Cliente' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Intenção' })).toHaveTextContent('88%');
+    expect(await screen.findByText('2 conversas anteriores')).toBeInTheDocument();
+    expect(mocked.getConversationHistory).toHaveBeenCalledWith('cus1', 6);
+  });
+
+  it('abre a linha do tempo na aba Histórico e a transcrição no modal', async () => {
+    const user = userEvent.setup();
+    renderConversation();
+
+    await user.click(await screen.findByRole('tab', { name: /Histórico/ }));
+    expect(await screen.findByRole('list', { name: 'Linha do tempo de conversas' }))
+      .toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /12\/08\/2026 — Suporte/ }));
+    await waitFor(() => expect(mocked.getConversation).toHaveBeenCalledWith('conv0'));
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('oferece assumir uma conversa transferida ainda sem dono', async () => {
+    const user = userEvent.setup();
+    mocked.getConversation.mockResolvedValue({
+      ...fixtures.conversationDetail, status: 'transferred',
+      ai: { ...fixtures.conversationDetail.ai,
+            handover: { ...fixtures.conversationDetail.ai.handover, requested: true,
+                        reason: 'Cliente pediu atendente' } },
+    });
+    mocked.requestHandover.mockResolvedValue(fixtures.conversationItem);
+    renderConversation();
+
+    await user.click(await screen.findByRole('button', { name: 'Assumir atendimento' }));
+
+    await waitFor(() => expect(mocked.requestHandover)
+      .toHaveBeenCalledWith('conv1', expect.any(String), 'Admin CX'));
+  });
+
+  it('mostra com quem está a conversa já assumida', async () => {
+    mocked.getConversation.mockResolvedValue({
+      ...fixtures.conversationDetail, status: 'transferred',
+      ai: { ...fixtures.conversationDetail.ai,
+            handover: { ...fixtures.conversationDetail.ai.handover, requested: true,
+                        assigned_agent: 'Admin CX' } },
+    });
+    renderConversation();
+
+    expect(await screen.findByRole('button', { name: 'Com você' })).toBeDisabled();
   });
 });
